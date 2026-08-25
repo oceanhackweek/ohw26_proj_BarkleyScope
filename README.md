@@ -44,6 +44,15 @@ You can start with a simple structure and as you progress you can refine it to c
 
 ## Datasets
 
+`final_notebooks/Glider_Curtain_Plot.ipynb` expects two local data files in the same folder
+(not committed to GitHub, per the note above — keep your own local copy):
+* `Barkley_Sound_Bathymetry.nc` — GEBCO_2026 bathymetry grid used as the curtain-plot basemap.
+  Note: its coverage currently stops ~65 km short of Barkley Sound itself (still an open issue).
+* `NE_San_Diego_Trough_Aug_2022.csv` — example CalCOFI CTD cast, used for the 2D profile plot.
+
+With `CONFIG["USE_SAMPLE_DATA"] = True` (the default), the notebook runs standalone on
+synthetic data and neither file is required.
+
 ## Workflow/Roadmap
 
 ## Results/Findings

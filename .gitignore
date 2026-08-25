@@ -1,1 +1,6 @@
 .ipynb_checkpoints
+
+# Large/local data used by final_notebooks/Glider_Curtain_Plot.ipynb -- keep a local copy
+# alongside the notebook, but per the note in the Datasets section, don't commit it.
+Barkley_Sound_Bathymetry.nc
+NE_San_Diego_Trough_Aug_2022.csv
