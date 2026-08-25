@@ -1,4 +1,4 @@
-# ohwyy_proj_BarkleyScope
+# ohw26_proj_BarkleyScope
 
 Template for starting Oceanhackweek project repos. 
 
