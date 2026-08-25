@@ -24,7 +24,7 @@ You can start with a simple structure and as you progress you can refine it to c
 | Name                | Role                |
 |---------------------|---------------------|
 | Taylor Borgfeldt      | data mining |
-| Ben Lymer             | data visualization |
+| Ben Limer             | data visualization |
 | Dwight Owens          | data mining |
 | Anais Gentilhomme     | data mining |
 | Shannon McClish       | data visualization |
