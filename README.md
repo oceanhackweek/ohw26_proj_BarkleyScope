@@ -1,4 +1,4 @@
-# ohwyy_proj_template
+# ohwyy_proj_BarkleyScope
 
 Template for starting Oceanhackweek project repos. 
 
@@ -25,17 +25,19 @@ You can start with a simple structure and as you progress you can refine it to c
 
 | Name                | Role                |
 |---------------------|---------------------|
-| Participant 1       |  |
-| Participant 2       |  |
-| Participant 3       |  |
-
+| Taylor     |  |
+| Ben       |  |
+| Dwight       |  |
+| Anais       |  |
+| Shannon       |  |
+| Carter Burtlake       |  |
 
 
 ## Planning
 
 * Initial idea: "short description"
 * Ideation Slide: Add link
-* Slack channel: ohw26_proj_name
+* Slack channel: local-knowledge-app
 * Final presentation: Add link
 
 ## Background
