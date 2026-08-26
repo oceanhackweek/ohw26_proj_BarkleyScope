@@ -192,20 +192,28 @@ def plot_glider_curtain(df, variable_col, variable_label=None, color_scale="Ther
 
 
 def plot_ctd_profile(df, variable_col, variable_label=None, title=None,
-                      line_color="#1b6ca8", line_width=2, marker_size=4):
+                      line_color="#1b6ca8", line_width=2, marker_size=4,
+                      width=450, height=700):
     """Standard 2D CTD profile: <variable> vs. depth, surface at top.
 
     Unlike a glider, a CTD cast doesn't move through lon/lat -- rendering it in 3D space
     (like a curtain) would misleadingly imply horizontal extent it doesn't actually have.
+
+    Plots `Depth.abs()` regardless of whether the input is stored positive- or negative-down --
+    plotting a negative-down Depth directly here (rather than its magnitude) put 0 at the
+    bottom of the reversed axis instead of the top. Sized taller than wide by default
+    (`width`/`height`) to match the usual depth-profile aspect, where the interesting variation
+    is almost entirely vertical.
     """
     import plotly.graph_objects as go
 
     variable_label = variable_label or variable_col
     title = title or f"CTD Profile: {variable_label}"
 
+    df_sorted = df.sort_values("Depth")
     fig = go.Figure()
     fig.add_trace(go.Scatter(
-        x=df[variable_col], y=df["Depth"],
+        x=df_sorted[variable_col], y=df_sorted["Depth"].abs(),
         mode="lines+markers",
         line=dict(color=line_color, width=line_width),
         marker=dict(size=marker_size, color=line_color),
@@ -215,6 +223,8 @@ def plot_ctd_profile(df, variable_col, variable_label=None, title=None,
         title=title,
         xaxis_title=variable_label,
         yaxis_title="Depth (m)",
-        yaxis=dict(autorange="reversed"),  # surface at top
+        yaxis=dict(autorange="reversed"),  # surface (0) at top, deepest at bottom
+        width=width,
+        height=height,
     )
     return fig
