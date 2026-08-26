@@ -159,9 +159,17 @@ def add_bathymetry_surface(fig, bathy, lon_bounds, lat_bounds, buffer_deg=0.02,
 def plot_glider_curtain(df, variable_col, variable_label=None, color_scale="Thermal",
                          title=None, marker_size=4, bathymetry=None,
                          bathy_buffer_deg=0.02, bathy_max_grid_size=200,
-                         bathy_colorscale="gray", bathy_opacity=0.85):
+                         bathy_colorscale="gray", bathy_opacity=0.85,
+                         width=440, height=560):
     """Build an interactive 3D 'curtain' plot of a track/cast colored by one variable,
-    optionally draped over a clipped patch of bathymetry."""
+    optionally draped over a clipped patch of bathymetry.
+
+    Colorbar is horizontal, placed below the 3D scene (rather than plotly's default
+    vertical bar to the right) -- a vertical bar eats into the scene's horizontal room,
+    which clips axis labels when this renders somewhere narrow, like a ~480px sidebar
+    panel. `width`/`height` default to a size that fits comfortably there too, matching
+    the way `plot_ctd_profile` already defaults to a profile-shaped size.
+    """
     import plotly.graph_objects as go
 
     variable_label = variable_label or variable_col
@@ -179,14 +187,24 @@ def plot_glider_curtain(df, variable_col, variable_label=None, color_scale="Ther
     fig.add_trace(go.Scatter3d(
         x=df["Longitude"], y=df["Latitude"], z=df["Depth"],
         mode="markers",
-        marker=dict(size=marker_size, color=df[variable_col], colorscale=color_scale,
-                    colorbar=dict(title=variable_label)),
+        marker=dict(
+            size=marker_size, color=df[variable_col], colorscale=color_scale,
+            colorbar=dict(
+                title=variable_label,
+                orientation="h",
+                x=0.5, xanchor="center",
+                y=-0.08, yanchor="top",
+                len=0.9, thickness=14,
+            ),
+        ),
         name=variable_label,
     ))
 
     fig.update_layout(
         title=title,
         scene=dict(xaxis_title="Longitude", yaxis_title="Latitude", zaxis_title="Depth (m)"),
+        margin=dict(l=10, r=10, t=40, b=50),
+        width=width, height=height,
     )
     return fig
 
