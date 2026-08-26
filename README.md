@@ -1,8 +1,6 @@
 # ohw26_proj_BarkleyScope
 
-Template for starting Oceanhackweek project repos. 
-
-This repo is an example of how teams can structure their project repositories and format their project README.md file, but feel free to adapt as suits your needs.
+Template for the BarkleyScope Oceanhackweek project repo. 
 
 **Folder Structure**
 
@@ -25,12 +23,12 @@ You can start with a simple structure and as you progress you can refine it to c
 
 | Name                | Role                |
 |---------------------|---------------------|
-| Taylor     |  |
-| Ben       |  |
-| Dwight       |  |
-| Anais       |  |
-| Shannon       |  |
-| Carter Burtlake       |  |
+| Taylor Borgfeldt      | data mining |
+| Ben Limer             | data visualization |
+| Dwight Owens          | data mining |
+| Anais Gentilhomme     | data mining |
+| Shannon McClish       | data visualization |
+| Carter Burtlake       | floater |
 
 
 ## Planning
