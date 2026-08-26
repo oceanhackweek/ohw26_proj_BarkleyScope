@@ -117,6 +117,7 @@ if you need observations newer than that.
 python data/update_cproof_glider.py --mode realtime     # what the daily job runs
 python data/update_cproof_glider.py --mode delayed      # refresh the reference record
 python data/verify_archives.py                          # confirm nothing is broken
+python data/verify_archives.py --mode realtime          # only the tracked archive
 ```
 
 Updates are **additive and idempotent**. Each deployment resumes from the last
