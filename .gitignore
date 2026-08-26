@@ -1,4 +1,6 @@
 .ipynb_checkpoints
+__pycache__/
+__marimo__/
 
 # Large/local data used by final_notebooks/Glider_Curtain_Plot.ipynb -- keep a local copy
 # alongside the notebook, but per the note in the Datasets section, don't commit it.
