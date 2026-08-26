@@ -1,6 +1,0 @@
-onc==2.6.0
-pandas==2.1.4
-matplotlib==3.10.8
-plotly==6.5.0
-cmocean==3.0.3
-python-dotenv==1.2.1
