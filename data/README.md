@@ -106,6 +106,13 @@ ds = xr.open_dataset("data/cproof_glider_delayed.nc")
 
 ## Keeping it up to date
 
+The daily job runs on a personal fork (`tborgfeldt/ohw26_proj_BarkleyScope`) rather than
+here, because it commits the refreshed archive back into the repository it runs in and
+that would add a ~3 MB binary to this repo's history every night. The copy of
+`cproof_glider_realtime.nc` committed here is therefore a **snapshot**, current as of the
+commit that added it; pull a fresh one from the fork, or run the command below yourself,
+if you need observations newer than that.
+
 ```bash
 python data/update_cproof_glider.py --mode realtime     # what the daily job runs
 python data/update_cproof_glider.py --mode delayed      # refresh the reference record
