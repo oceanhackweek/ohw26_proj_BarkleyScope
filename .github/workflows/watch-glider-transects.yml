@@ -1,0 +1,69 @@
+name: Watch glider transects
+
+# Daily at 00:00 UTC, the same slot the archive updater uses on its fork.
+# GitHub's scheduled runs are queued rather than punctual -- expect the job to start
+# some minutes after midnight, occasionally much later when the platform is busy.
+# Nothing here is time-critical: the manifest is rebuilt from the C-PROOF catalogue
+# each run, so a late or skipped run costs nothing and the next one catches up.
+on:
+  schedule:
+    - cron: "0 0 * * *"
+  workflow_dispatch:
+    inputs:
+      lookback_days:
+        description: "How recent a last fix must be to count (default 30)"
+        required: false
+        default: "30"
+
+# Only what the commit needs. The job reads a public server and writes two small
+# files; it has no business with anything else in the repository.
+permissions:
+  contents: write
+
+concurrency:
+  group: watch-glider-transects
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # No netCDF files are downloaded -- the catalogue is JSON and the directory
+      # listings are HTML -- so xarray and gsw are not needed here; cproof_https
+      # imports them lazily, inside the readers this job never calls. netCDF4 is
+      # unavoidable: it is a module-level import in cproof_glider, which is where the
+      # shared BOX and column definitions live.
+      - name: Install dependencies
+        run: pip install requests pandas numpy netCDF4
+
+      - name: Check for transects in the Barkley box
+        id: check
+        run: |
+          python data/watch_glider_transects.py \
+            --lookback-days "${{ github.event.inputs.lookback_days || '30' }}"
+
+      - name: Commit the manifest
+        if: steps.check.outputs.changed == 'true'
+        # The subject contains deployment names taken from a third-party catalogue, so
+        # it reaches the shell through the environment rather than through `${{ }}`
+        # interpolation -- the latter pastes the value into the script text before bash
+        # ever sees it, which is how untrusted upstream data becomes command execution.
+        env:
+          SUBJECT: ${{ steps.check.outputs.subject }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/cproof_transects.json data/cproof_transects.geojson
+          # Belt and braces: the script already decided nothing changed, but an
+          # empty commit here would still be noise if it ever got that wrong.
+          git diff --cached --quiet && echo "nothing staged" && exit 0
+          git commit -m "$SUBJECT"
+          git push

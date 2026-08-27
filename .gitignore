@@ -17,6 +17,12 @@ data/cproof_glider_delayed.nc
 # Superseded by the netCDF archives.
 data/cproof_barkley_gliders.csv
 
+# Real-time files pulled straight from the C-PROOF server by data/cproof_https.py.
+# Not tracked: they are rewritten hourly upstream (so a committed copy is stale by
+# definition), and the gridded ones are 17-60 MB each. Re-fetch with:
+#     python data/cproof_https.py
+data/cproof/
+
 # Carries a live ONC API token in a code cell. Keep a local copy to work from, but it
 # must not enter the history -- a token committed once stays in the history even after
 # it is edited out. If you need to share this notebook, read the token from an

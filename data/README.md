@@ -132,11 +132,109 @@ missed by one run is picked up by the next and successive runs converge on full
 coverage. For the same reason, **avoid `--rebuild`** unless you have a specific reason:
 if the catalogue happens to be thin at that moment, the rebuilt archive will be thin too.
 
+## What is out there *right now* — `cproof_https.py`
+
+The archives above come from the IOOS DAC. For a live "what is in the water today"
+panel they are the wrong source, because **C-PROOF's own server runs several days
+ahead of the DAC.** Checked 2026-08-27: the DAC had no record of
+`dfo-hal1002-20260817` at all, and its `dfo-eva035` copy stopped three days short,
+while both were current on C-PROOF. `cproof_https.py` reads
+[the C-PROOF server](https://cproof.uvic.ca/gliderdata/deployments) directly, where
+real-time netCDF is published as static files and refreshed hourly.
+
+```bash
+python data/cproof_https.py                        # what is reporting in the box now
+python data/cproof_https.py --grid                 # also cache the gridded files
+python data/cproof_https.py --geojson tracks.json  # write map-ready tracks
+```
+
+```python
+import sys; sys.path.insert(0, "data")
+import cproof_https as live
+
+now = live.snapshot()                    # same columns as read_archive(), current to the hour
+deployments = live.available_now()       # what is flying, with tracks and metadata
+layer = live.track_geojson(deployments)  # FeatureCollection for MapLibre
+grid = live.load_grid(deployments[0])    # depth x profile Dataset for a curtain plot
+```
+
+`snapshot()` returns exactly the columns `read_archive()` does, so anything already
+reading the archives can read a live snapshot without changes. Downloads are cached
+under `data/cproof/` (gitignored) and revalidated with `If-Modified-Since`, so
+repeated calls cost one 304 per file rather than a re-download.
+
+**Two products per deployment.** The timeseries (~1–2 MB) is one row per observation
+and is what `snapshot()` reads. The gridded file (17–60 MB) is `depth × profile` and
+carries the `*_adjusted` and `*_qc` variables the timeseries lacks — use it for
+curtain and pcolor plots, where it is dramatically lighter:
+`dfo-hal1002-20260817` is 677 profiles gridded against 12,089 scattered observations.
+
+Three quirks of this source the module handles, each of which silently corrupts a
+plot if you do not:
+
+- **A "deployment" directory is not a mission.** When a glider is recovered and
+  redeployed mid-mission, C-PROOF opens a new dated directory but keeps the original
+  start time, and the newer file contains *both* legs. `dfo-eva035-20260806` and
+  `-20260826` are one mission; reading both double-counts the overlap.
+  `collapse_missions()` keeps only the superset.
+- **Filenames are not regular.** The real-time grid is `_grid.nc` for one deployment
+  and `_grid_adjusted.nc` for another. Files are found by listing the directory and
+  ranking candidates, never by building a URL from the deployment name.
+- **A missing sensor can come back as a copy of another one.**
+  `dfo-colin1142-20260708`, whose catalogue comment reads "no O2 on this deployment",
+  publishes an `oxygen_concentration` identical to `backscatter_700` — labelled
+  µmol/L, valued 8.1e-5 to 5.9e-3, and comfortably inside any range check.
+  `blank_mismapped_channels()` catches it on exact equality.
+
+Real-time data is **not calibrated**; the same gross-range screen the archives use is
+applied here, and nothing more. Label it accordingly.
+
+### The nightly transect watch
+
+`.github/workflows/watch-glider-transects.yml` runs `watch_glider_transects.py` at
+**00:00 UTC daily** — the same slot the archive updater uses on its fork — and commits
+two small tracked files when, and only when, something has actually changed:
+
+| File | What it is | Size |
+|---|---|---|
+| `cproof_transects.json` | The manifest: every deployment with a track in the box whose last fix is within 30 days, plus resolved real-time file URLs and a `seen` ledger | ~5 KB |
+| `cproof_transects.geojson` | The same tracks as LineStrings, coloured by deployment | ~46 KB |
+
+Read the manifest instead of querying C-PROOF, if all you need is *what is out there*:
+
+```python
+import json
+manifest = json.load(open("data/cproof_transects.json"))
+for transect in manifest["transects"]:
+    print(transect["deployment"], transect["first_seen"], transect["files"]["grid"])
+```
+
+The job downloads no netCDF files — one catalogue request plus a directory listing per
+deployment — so it finishes in seconds. Two details worth knowing if you change it:
+
+- **The `seen` ledger is what makes "new" mean anything.** It records when each
+  transect *first* appeared and is never pruned, so a deployment that drops out of the
+  30-day window and comes back is reported as **returned**, not as new. Without it, a
+  rebuilt manifest would announce every transect as new.
+- **The manifest stores no `age`.** Age is a function of when you look, so storing it
+  would make the file differ from itself on every run — turning the "did anything
+  change" test that gates the nightly commit into "did the job run", and producing an
+  empty commit every night. Derive age from `last_fix` at read time.
+
+Run it by hand any time; it is idempotent, and `--dry-run` writes nothing:
+
+```bash
+python data/watch_glider_transects.py --dry-run
+python data/watch_glider_transects.py --lookback-days 90
+```
+
 ## Files
 
 | File | Purpose |
 |---|---|
 | `cproof_glider.py` | The shared library — discovery, fetching, QC, netCDF I/O, update logic |
+| `cproof_https.py` | Live view straight from the C-PROOF server — what is in the box now |
+| `watch_glider_transects.py` | Nightly check for new transects in the box; writes the manifest |
 | `update_cproof_glider.py` | CLI entry point for the scheduled job |
 | `verify_archives.py` | Post-rebuild checks; exits non-zero if anything is wrong |
 | `Glider_ERDDAP_DataPull.ipynb` | Annotated walkthrough of the same pipeline |
