@@ -35,3 +35,14 @@ data/PartII_API_Access.ipynb
 # until that process closes it. They appear as untracked files and are not ours to keep --
 # e.g. replacing data/sst_barkley_realtime.nc while a marimo kernel is reading it.
 .nfs*
+
+# Glider gridded files from C-PROOF, fetched by data/fetch_grid_adjusted.py.
+# 26 files, 10.68 GB -- 21 of them are individually over GitHub's 100 MB per-file
+# limit, so these cannot be committed at all. They live on the release instead:
+#     https://github.com/oceanhackweek/ohw26_proj_BarkleyScope/releases/tag/glider-adjusted-v1
+# Rebuild from the server with `python data/fetch_grid_adjusted.py`, or pull the
+# mirrored copies with `gh release download glider-adjusted-v1`.
+# manifest.json is deliberately NOT ignored -- it is small, and it is the record of
+# what the set contains and why each excluded mission was excluded.
+data/glider_adjusted/**/*.nc
+data/glider_adjusted/rejected/

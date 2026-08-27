@@ -228,12 +228,77 @@ python data/watch_glider_transects.py --dry-run
 python data/watch_glider_transects.py --lookback-days 90
 ```
 
+## The gridded mission set — `glider_adjusted/`
+
+The archives above are one row per observation. For a curtain or `pcolormesh` plot you
+want the *gridded* product instead: depth × profile, with the calibrated `*_adjusted`
+fields and their QC flags. `fetch_grid_adjusted.py` pulls the `_grid_adjusted.nc` file
+for every mission on the two lines that cross the study box.
+
+```bash
+python data/fetch_grid_adjusted.py              # 26 files, 10.68 GB
+python data/fetch_grid_adjusted.py --dry-run    # just show the plan
+python data/fetch_grid_adjusted.py --compress   # zlib on the way in, ~5-8x smaller
+```
+
+Missions are selected from C-PROOF's catalogue rather than a hand-typed list, so one
+added next month is picked up without editing code:
+
+| Group | Selected by | Count |
+|---|---|---|
+| `southern_line/` | `project == "Southern Line"` | 11 |
+| `svi_shelf/` | `comment == "SVI Shelf from Bamfield"` | 15 |
+
+Note that the SVI Shelf missions are identified by their **comment**, not their project
+— C-PROOF files them under `LB Line`, so keying on `project` would miss all 15.
+
+### These files are not in git
+
+Each is 42 MB to 940 MB (uncompressed float64 on a 1100-bin depth axis that is mostly
+NaN below the dive depth), and **21 of the 26 are over GitHub's 100 MB per-file limit**.
+Splitting the push per file does not help — that limit is enforced per file, not per
+push. So they are gitignored and mirrored as release assets, which allow 2 GB each:
+
+```bash
+gh release download glider-adjusted-v1        # pull the mirrored copies
+bash data/upload_glider_adjusted.sh           # re-upload; skips what is already there
+```
+
+`glider_adjusted/manifest.json` *is* committed. It records every file's source URL, byte
+size, server `Last-Modified`, and verification result, so the set is auditable without
+downloading a gigabyte.
+
+### What gets excluded, and why
+
+Only `<deployment>_grid_adjusted.nc` is taken — never `_grid.nc`, `_grid_delayed.nc`,
+`_grid_delayed_adjusted.nc`, or `_grid_CTDadjusted.nc`. The match is on the exact
+filename, which also rules out the stray copies of *other* deployments' grids that sit
+in some `L0-gridfiles` directories (`dfo-eva035-20250619/` holds a
+`dfo-eva035-20250527_grid.nc`); taking those would file one mission's data under
+another's name.
+
+Four missions in the two groups are dropped:
+
+| Deployment | Reason |
+|---|---|
+| `dfo-eva035-20260806` | Continuation directory — same `deployment_start` as `dfo-eva035-20260826`, whose file is the superset. Keeping both double-counts every overlapping profile. |
+| `dfo-eva035-20250825` | No adjusted product on the server |
+| `dfo-eva035-20260423` | No adjusted product on the server |
+| `dfo-hal1002-20260817` | No adjusted product on the server |
+
+A filename ending in `_grid_adjusted.nc` is not proof the calibration was ever run, so
+every downloaded file is opened and checked for `temperature_adjusted` carrying finite
+values. Anything failing is moved to `glider_adjusted/rejected/` rather than deleted, so
+the call stays inspectable. All 26 currently pass.
+
 ## Files
 
 | File | Purpose |
 |---|---|
 | `cproof_glider.py` | The shared library — discovery, fetching, QC, netCDF I/O, update logic |
 | `cproof_https.py` | Live view straight from the C-PROOF server — what is in the box now |
+| `fetch_grid_adjusted.py` | Bulk download of the gridded `_grid_adjusted.nc` mission set |
+| `upload_glider_adjusted.sh` | Mirrors that set to the GitHub release, one deployment at a time |
 | `watch_glider_transects.py` | Nightly check for new transects in the box; writes the manifest |
 | `update_cproof_glider.py` | CLI entry point for the scheduled job |
 | `verify_archives.py` | Post-rebuild checks; exits non-zero if anything is wrong |
