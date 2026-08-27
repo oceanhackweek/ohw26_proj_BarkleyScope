@@ -120,6 +120,32 @@ def config():
                                            # note about never re-running).
             "DEPTH_POSITIVE_DOWN": True,
         },
+        "HISTORICAL": {
+            # Every deployment on the Southern Line and the SVI Shelf line that has a
+            # gridded adjusted file, precomputed by data/build_historical_tracks.py.
+            # That script reads the 10.68 GB of netCDF; this app reads only its ~1.3 MB
+            # output, so switching views costs one file read and no network.
+            "TRACKS": "../data/glider_adjusted_tracks.geojson",
+            "SITES": "../data/folger_sites.geojson",
+            # Points, not lines. The gridded files sample anywhere from every ~9 min to
+            # every ~1 h, so any line joining consecutive profiles either invents a path
+            # across a real gap or shreds a sparse transit into dashes depending on where
+            # the threshold lands -- see data/README.md. Points assert nothing in between.
+            "POINT_RADIUS": 2.2,
+            # Sequential ramp over deployment date, keyed on each feature's `epoch_days`.
+            # Orange rather than the usual blue because the basemap *is* blue: the Esri
+            # ocean tiles sample #a8c9e8, and a blue ramp's light end disappears into the
+            # water. Every step here clears 2:1 contrast against that water (min 2.07),
+            # single hue, monotonic lightness.
+            "RAMP": ["#e35e27", "#d55114", "#c3480c", "#b04009", "#9e3807", "#8c3105", "#7a2a04"],
+            # Ocean Networks Canada instrument sites in Folger Passage. Shown in BOTH
+            # views -- they are fixed reference locations, useful next to a live glider
+            # as much as next to the historical record. They sit ~650 m apart, so they
+            # overplot until you zoom in.
+            "SITE_RADIUS": 6,
+            "SITE_COLOR": "#ffffff",
+            "SITE_STROKE": "#0b0b0b",
+        },
     }
     return (CONFIG_MAP,)
 
@@ -142,6 +168,26 @@ def about_note(mo):
       Click a track to select it: the whole transect turns orange and a 3D curtain plot of that
       deployment opens in the sidebar. Data is real-time and **not calibrated** -- only a gross-range
       screen has been applied.
+
+    - **Historical** -- the switch at the top swaps the live view for every deployment on the
+      **Southern Line** and the **SVI Shelf from Bamfield** line that has a gridded adjusted file:
+      26 deployments, 28,452 profile positions, coloured by deployment date. Clicking does nothing
+      in this view yet -- the click-through plots are still to come.
+
+      Each profile is drawn as its own point and nothing is drawn between them. The gridded files
+      sample anywhere from every ~9 minutes to every ~1 hour, so a line joining consecutive profiles
+      would either invent a path across a real gap or break a sparse transit into dashes, depending
+      on where a threshold landed. Points assert only what was measured, so sparse deployments
+      genuinely look sparse.
+
+      Positions come from `data/glider_adjusted_tracks.geojson`, precomputed by
+      `data/build_historical_tracks.py` -- the app reads ~1.3 MB of geometry, never the 10.68 GB of
+      netCDF behind it. Colour is keyed on the date in each deployment's directory name; the files'
+      own `deployment_start` attribute is wrong in 13 of the 26.
+
+    - **Folger Deep** and **Folger Pinnacle** -- the two Ocean Networks Canada instrument sites in
+      Folger Passage, shown in *both* views as fixed reference points. They sit ~650 m apart and
+      overplot until you zoom in.
 
     **Data shape:** `load_active_gliders()` standardizes every deployment to `Longitude`, `Latitude`,
     `Depth`, `<variable>` -- the same schema `glider_lib.load_platform_data()` produces for a plain
@@ -173,6 +219,42 @@ def glider_data(CONFIG_MAP, load_active_gliders):
     return (glider_records,)
 
 
+@app.cell
+def historical_data(CONFIG_MAP):
+    # The historical view's entire data cost: two small JSON reads, no network.
+    #
+    # This cell's only input is CONFIG_MAP, which never changes after load, so it runs
+    # exactly once -- which matters because `map` depends on it and `map` must never
+    # re-run (see that cell). Load failure degrades to an empty FeatureCollection
+    # rather than an exception: a missing precompute should cost you the historical
+    # layer, not the whole app including the live map.
+    import json as _json
+    from pathlib import Path as _Path
+
+    _cfg = CONFIG_MAP["HISTORICAL"]
+    _here = _Path(__file__).resolve().parent
+
+    def _load(relative, what):
+        _path = (_here / relative).resolve()
+        try:
+            _data = _json.loads(_path.read_text())
+        except (OSError, ValueError) as _error:
+            print(f"Historical: could not read {what} ({_path}): {_error}\n"
+                  f"            run `python data/build_historical_tracks.py` to build it")
+            return {"type": "FeatureCollection", "features": []}
+        return _data
+
+    historical_tracks = _load(_cfg["TRACKS"], "tracks")
+    folger_sites = _load(_cfg["SITES"], "Folger sites")
+
+    _n_points = sum(_f["properties"].get("n_points", 0)
+                    for _f in historical_tracks["features"])
+    print(f"Historical: {len(historical_tracks['features'])} deployment(s), "
+          f"{_n_points} profile positions, "
+          f"{len(folger_sites['features'])} instrument site(s)")
+    return folger_sites, historical_tracks
+
+
 @app.cell(hide_code=True)
 def map(
     CONFIG_MAP,
@@ -186,7 +268,9 @@ def map(
     ScaleControl,
     about_md,
     construct_basemap_style,
+    folger_sites,
     glider_records,
+    historical_tracks,
     mo,
 ):
     _lon_lo, _lon_hi = CONFIG_MAP["REGION"]["lon_range"]
@@ -304,15 +388,68 @@ def map(
         paint={"line-color": _highlight_expr(), "line-width": 3},
     )
 
-    # All three source/layer pairs are baked directly into the initial style
+    # --- Historical layer: every profile position from the gridded adjusted files ---
+    # One MultiPoint feature per deployment, so this single interpolate expression
+    # paints a whole deployment at once, keyed on the `epoch_days` the precompute
+    # already wrote. Days rather than a date string because `interpolate` needs a
+    # number; the domain comes from the file so the ramp never has to be re-derived.
+    #
+    # Starts hidden. `historical_toggle_visibility` flips it, never this cell.
+    _hist_cfg = CONFIG_MAP["HISTORICAL"]
+    _ramp = _hist_cfg["RAMP"]
+    _span = max(historical_tracks.get("epoch_days_max", 1), 1)
+    _ramp_stops = []
+    for _i, _colour in enumerate(_ramp):
+        _ramp_stops += [_span * _i / (len(_ramp) - 1), _colour]
+
+    _historical_layer = Layer(
+        id="historical-points",
+        type=LayerType.CIRCLE,
+        source="historical-points",
+        paint={
+            "circle-radius": _hist_cfg["POINT_RADIUS"],
+            "circle-color": ["interpolate", ["linear"], ["get", "epoch_days"], *_ramp_stops],
+            "circle-opacity": 0.85,
+        },
+        layout={"visibility": "none"},
+    )
+
+    # --- Folger Passage instrument sites ---
+    # Visible in both views: fixed reference points, not part of either data mode.
+    # Drawn last so they sit above every track. Circles rather than a symbol layer
+    # with text on purpose -- a symbol layer needs a `glyphs` URL in the style, which
+    # this basemap does not define, and a missing glyphs endpoint fails the whole
+    # style rather than just the labels. The names live in the legend instead.
+    _folger_layer = Layer(
+        id="folger-sites",
+        type=LayerType.CIRCLE,
+        source="folger-sites",
+        paint={
+            "circle-radius": _hist_cfg["SITE_RADIUS"],
+            "circle-color": _hist_cfg["SITE_COLOR"],
+            "circle-stroke-width": 2,
+            "circle-stroke-color": _hist_cfg["SITE_STROKE"],
+        },
+    )
+
+    # All five source/layer pairs are baked directly into the initial style
     # (see earlier pass's long comment for why -- add_source/add_layer after
-    # construction only fire once, ever, and don't survive reconnects).
+    # construction only fire once, ever, and don't survive reconnects). That
+    # constraint is exactly why the historical layer is created here, hidden,
+    # rather than added when the view is first switched to.
+    #
+    # Layer order is draw order: historical points sit under the live track so that
+    # switching to historical never buries a live glider, and Folger sits on top of
+    # both.
     _basemap_style = construct_basemap_style(
-        layers=[_esri_layer, _glider_layer, _glider_point_layer],
+        layers=[_esri_layer, _historical_layer, _glider_layer,
+                _glider_point_layer, _folger_layer],
         sources={
             "esri-ocean": _esri_source.to_dict(),
             "glider-track": GeoJSONSource(data=_glider_collection).to_dict(),
             "glider-points": GeoJSONSource(data=_glider_points_collection).to_dict(),
+            "historical-points": GeoJSONSource(data=historical_tracks).to_dict(),
+            "folger-sites": GeoJSONSource(data=folger_sites).to_dict(),
         },
         name="esri-ocean-basemap",
     )
@@ -352,6 +489,28 @@ def map(
     # once, ever. That's what keeps the map (and now the plot panel's
     # *positioning*, see below) stable across clicks.
     map_ui = mo.ui.anywidget(map_widget)
+
+    # The view switch. Defined HERE, in the cell it is displayed in, on purpose: a UI
+    # element's own defining cell is exempt from re-running on its own value changes
+    # (the same rule `click_plot` documents for the time slider). So the toggle can
+    # live inside the map's stable DOM without the map ever being rebuilt underneath
+    # it. `historical_toggle_visibility` reads the value and pushes layer visibility;
+    # nothing downstream of it touches `map_widget`'s construction.
+    view_toggle = mo.ui.radio(
+        options=["Real-time", "Historical"],
+        value="Real-time",
+        inline=True,
+    )
+
+    # Static legend, covering both views at once rather than swapping with the mode.
+    # Swapping it would mean a cell that re-renders on toggle and paints over a fixed,
+    # full-viewport map -- the exact pattern the plot panel had to be rebuilt to avoid
+    # (see `#plot-panel-slot` below). A legend small enough to always show costs less
+    # than that risk.
+    _epoch_start = historical_tracks.get("epoch_start", "")
+    _months = historical_tracks.get("months") or [""]
+    _ramp_css = ", ".join(_hist_cfg["RAMP"])
+    _site_names = " · ".join(_f["properties"]["name"] for _f in folger_sites["features"])
 
     # `#plot-panel-slot` lives here, inside the ONE part of this app proven to
     # render stably (nothing about this cell ever re-runs after load, unlike
@@ -458,21 +617,114 @@ def map(
         padding: 1px 4px;
         border-radius: 4px;
       }}
+      /* Top centre, clear of the title (top-left) and the about button (mid-right). */
+      .glider-map-root .view-switch {{
+        position: absolute;
+        top: 14px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 3;
+        background: rgba(10, 20, 30, 0.72);
+        color: #fff;
+        padding: 6px 12px;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+        font: 500 13px/1.2 system-ui, sans-serif;
+      }}
+      /* marimo renders the radio as its own labelled inputs; keep them on one line
+         and inherit the dark panel's text colour instead of the notebook's. */
+      .glider-map-root .view-switch label,
+      .glider-map-root .view-switch span {{ color: #fff; }}
+      .glider-map-root .view-switch > * {{ margin: 0; }}
+      .glider-map-root .map-legend {{
+        position: absolute;
+        left: 16px;
+        bottom: 16px;
+        z-index: 2;
+        background: rgba(10, 20, 30, 0.72);
+        color: #eaeaea;
+        padding: 10px 12px;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+        font: 400 11.5px/1.45 system-ui, sans-serif;
+        max-width: 260px;
+        pointer-events: none;
+      }}
+      .glider-map-root .map-legend b {{ font-weight: 600; }}
+      .glider-map-root .legend-ramp {{
+        height: 9px;
+        border-radius: 3px;
+        margin: 5px 0 3px;
+        background: linear-gradient(to right, {_ramp_css});
+      }}
+      .glider-map-root .legend-ends {{
+        display: flex;
+        justify-content: space-between;
+        color: #b9c2cb;
+        font-size: 10.5px;
+      }}
+      .glider-map-root .legend-site {{
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #fff;
+        border: 2px solid #0b0b0b;
+        vertical-align: -1px;
+        margin-right: 5px;
+      }}
     </style>
     <div class="glider-map-root">
       <div class="map-layer">{map_ui}</div>
       <div class="app-title">Glider Map -- Barkley Sound</div>
+      <div class="view-switch">{view_toggle}</div>
+      <div class="map-legend">
+        <b>Historical</b> — profile positions by deployment date
+        <div class="legend-ramp"></div>
+        <div class="legend-ends"><span>{_months[0]}</span><span>{_months[-1]}</span></div>
+        <div style="margin-top:7px"><span class="legend-site"></span>{_site_names}</div>
+      </div>
       <details class="about-toggle">
         <summary>i</summary>
         <div class="about-body">{about_md}</div>
       </details>
     </div>
     """)
-    return glider_highlight_expr, map_ui, map_widget
+    return glider_highlight_expr, map_ui, map_widget, view_toggle
 
 
 @app.cell
-def click_plot(glider_records, map_ui, set_plot_closed):
+def historical_toggle_visibility(map_widget, view_toggle):
+    # Switch the view by flipping layer visibility, never by rebuilding the map.
+    #
+    # Same discipline as `glider_highlight`, and for the same reason: `map` builds
+    # `map_widget`/`map_ui` and must never re-run, or a brand-new widget gets forced
+    # into a live browser session and the mount breaks. Reading `map_widget` here and
+    # calling a method on it does not re-run `map` -- marimo's dataflow only runs
+    # downstream. Both layers already exist in the baked style, so this is a one-word
+    # layout-property update per layer, not a source swap.
+    #
+    # `set_visibility` goes out through `add_call`, the same post-render comm path
+    # `set_paint_property` uses, so these do not accumulate in widget state -- and,
+    # equally, are not replayed on reconnect. After a page reload the map comes back
+    # in the baked-in default (real-time visible, historical hidden) regardless of
+    # where the toggle is sitting. That degrades to "shows the live view", never to a
+    # blank or wrong map, which is the right way round.
+    #
+    # Folger sites are deliberately absent from this list: they are fixed reference
+    # points that belong in both views.
+    _historical = view_toggle.value == "Historical"
+
+    map_widget.set_visibility("historical-points", _historical)
+    for _layer in ("glider-track-line", "glider-segment-markers"):
+        map_widget.set_visibility(_layer, not _historical)
+
+    historical_view = _historical
+    return (historical_view,)
+
+
+@app.cell
+def click_plot(glider_records, historical_view, map_ui, set_plot_closed):
     _clicked = (map_ui.value or {}).get("clicked") or {}
     _click_lon, _click_lat = _clicked.get("lng"), _clicked.get("lat")
     _TOLERANCE_DEG = 0.05  # generous proximity radius for hit-testing a click against a track
@@ -480,13 +732,22 @@ def click_plot(glider_records, map_ui, set_plot_closed):
     def _near(lon, lat, lon2, lat2, tol=_TOLERANCE_DEG):
         return lon is not None and abs(lon - lon2) < tol and abs(lat - lat2) < tol
 
+    # Historical is a look-only view for now: clicking a track opens nothing. The
+    # click-through plots are another team member's work, so leave the selection empty
+    # rather than half-wiring a panel they will replace. Guarding the hit-test rather
+    # than returning early keeps this cell's single return statement intact, which is
+    # what marimo reads to know the cell defines `selected_glider_record`.
+    #
+    # This also clears any live-view selection on the way in, so switching views never
+    # strands an orange highlight under a layer that is no longer visible.
     selected_glider_record = None
-    for _rec in glider_records:
-        if any(_near(_click_lon, _click_lat, lon2, lat2)
-               for lon2, lat2 in zip(_rec["df"]["Longitude"], _rec["df"]["Latitude"])):
-            selected_glider_record = _rec
-            break  # first deployment within tolerance wins -- same precision as today's
-                   # single-glider hit-test, generalized from 1 candidate to N
+    if not historical_view:
+        for _rec in glider_records:
+            if any(_near(_click_lon, _click_lat, lon2, lat2)
+                   for lon2, lat2 in zip(_rec["df"]["Longitude"], _rec["df"]["Latitude"])):
+                selected_glider_record = _rec
+                break  # first deployment within tolerance wins -- same precision as today's
+                       # single-glider hit-test, generalized from 1 candidate to N
 
     # Reset the close flag on every new valid selection so clicking a
     # (possibly different) marker/track point always reopens the panel, even
