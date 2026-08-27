@@ -16,3 +16,10 @@ data/cproof_glider_delayed.nc
 
 # Superseded by the netCDF archives.
 data/cproof_barkley_gliders.csv
+
+# Carries a live ONC API token in a code cell. Keep a local copy to work from, but it
+# must not enter the history -- a token committed once stays in the history even after
+# it is edited out. If you need to share this notebook, read the token from an
+# environment variable first:
+#     token = os.environ["ONC_TOKEN"]
+data/PartII_API_Access.ipynb
