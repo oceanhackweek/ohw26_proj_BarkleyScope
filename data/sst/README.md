@@ -469,11 +469,18 @@ their inputs are cached downloads and are not kept in the repo.
 
 ## Keeping it current
 
-`.github/workflows/refresh-sst.yml` runs the whole pipeline daily and commits the result.
+`.github/workflows/refresh-sst.yml` runs the whole pipeline and commits the result.
+
+**It is manual-only right now.** The `schedule` block is commented out on purpose: an
+unattended job that commits to `main` should earn that by being run by hand a few times
+first. Uncomment the two `cron` lines to turn the daily run on; nothing else changes.
+
+While it is manual, **the archive drifts** -- it is only as current as the last time
+someone pressed the button.
 
 | | |
 |---|---|
-| **Schedule** | 11:00 UTC daily |
+| **Schedule** | disabled (11:00 UTC daily when re-enabled) |
 | **Manual** | Actions tab -> "Refresh satellite SST" -> Run workflow (with an optional `force`) |
 | **Writes** | `data/sst_barkley_realtime.nc`, `data/sst_barkley_layer.geojson` |
 | **Permissions** | `contents: write` -- nothing else |
@@ -483,6 +490,8 @@ changed. The verify step is a gate, not a formality: a bad archive fails the job
 layer is rebuilt, so the copy on `main` stays the last known-good one.
 
 Three things about the timing that are easy to get wrong:
+
+These apply once the schedule is re-enabled:
 
 - **11:00 UTC is chosen to avoid 00:00**, which `watch-glider-transects.yml` uses. Both jobs
   commit to `main`; two pushes in the same minute means one loses the race. Spacing them is

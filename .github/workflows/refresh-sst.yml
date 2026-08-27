@@ -1,16 +1,25 @@
 name: Refresh satellite SST
 
-# Daily at 11:00 UTC, deliberately NOT the 00:00 slot watch-glider-transects.yml uses.
-# Both jobs commit to main, and two workflows pushing at the same minute means one loses
-# the race and fails on a non-fast-forward. Spacing them is cheaper than retry logic.
+# MANUAL ONLY for now. The schedule below is commented out deliberately: this pipeline
+# is still being proved out, and an unattended job that commits to main should earn that
+# trust by being run by hand a few times first.
 #
-# The hour is otherwise arbitrary, and that is fine: the Geo-polar blend publishes about
-# two days behind on NOAA's own cadence, so running at midnight rather than midday does
-# not change which days come back. A late or skipped run costs nothing -- the fetch asks
-# what is published and takes the newest seven steps, so the next run catches up.
+# To turn the daily run back on, uncomment the two `schedule` lines. Nothing else needs
+# to change -- the job itself is identical either way.
+#
+# Why 11:00 UTC when it is re-enabled: deliberately NOT the 00:00 slot
+# watch-glider-transects.yml uses. Both jobs commit to main, and two workflows pushing in
+# the same minute means one loses the race and fails on a non-fast-forward. The hour is
+# otherwise arbitrary -- the Geo-polar blend publishes about two days behind on NOAA's own
+# cadence, so the time of day does not change which days come back. A late or skipped run
+# costs nothing: the fetch asks what is published and takes the newest seven steps, so the
+# next run catches up.
+#
+# One thing to know before re-enabling: GitHub disables a scheduled workflow after 60 days
+# of repository inactivity, without announcing it.
 on:
-  schedule:
-    - cron: "0 11 * * *"
+  # schedule:
+  #   - cron: "0 11 * * *"
   workflow_dispatch:
     inputs:
       force:
