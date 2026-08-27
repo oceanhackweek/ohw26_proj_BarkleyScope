@@ -23,3 +23,9 @@ data/cproof_barkley_gliders.csv
 # environment variable first:
 #     token = os.environ["ONC_TOKEN"]
 data/PartII_API_Access.ipynb
+
+# Rebuilt from the archive in seconds by `python data/sst/export_layer.py`, and
+# regenerated after every fetch -- committing it would add ~2 MB to the history each
+# time. It is the file handed to the shared app, but it is a build artifact, not a
+# source. See data/sst/README.md, "export_layer.py -- the handoff".
+data/sst_barkley_layer.geojson
