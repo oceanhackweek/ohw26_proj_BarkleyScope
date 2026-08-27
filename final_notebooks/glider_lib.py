@@ -301,7 +301,18 @@ def plot_glider_curtain(df, variable_col, variable_label=None, color_scale="Ther
 
     fig.update_layout(
         title=title,
-        scene=dict(xaxis_title="Longitude", yaxis_title="Latitude", zaxis_title="Depth (m)"),
+        scene=dict(
+            xaxis_title="Longitude", yaxis_title="Latitude", zaxis_title="Depth (m)",
+            # Plotly's default camera (eye=(1.25,1.25,1.25)) puts LOWER latitude toward the
+            # top of the screen -- confirmed via the look-at camera math (forward/right/
+            # true-up cross products): the default's on-screen "up" direction has a NEGATIVE
+            # latitude component. Negating eye.y only (camera moves to the south side,
+            # looking north) flips that component positive while leaving Depth's (dominant,
+            # correct) contribution unchanged -- north now reads as up, matching the map, and
+            # depth still reads surface-up/deep-down. Still freely rotatable afterward; this
+            # only sets the initial view.
+            camera=dict(eye=dict(x=1.25, y=-1.25, z=1.25), up=dict(x=0, y=0, z=1)),
+        ),
         margin=dict(l=10, r=10, t=40, b=50),
         width=width, height=height,
     )
