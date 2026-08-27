@@ -316,6 +316,10 @@ list everything reached *transitively*, including `xarray`, `netCDF4` and `reque
 | **Writes** | `../sst_barkley_layer.geojson` — 2.14 MB, 8,428 features |
 | **Run** | `python export_layer.py` · `--days 3` · `--pretty` |
 
+> **Integrating it into the app?** `INTEGRATING_THE_LAYER.md` in this folder is the
+> step-by-step for whoever owns the app — what is in the file, the fifteen lines that add
+> it, and the two architectural constraints that bite if ignored.
+
 `map_layers.py` hands our app live Python objects, which requires that app to import this
 folder. That is right when both live in one repo; it is not something you can hand
 someone. This writes the same layer as **one file** instead.
