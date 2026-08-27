@@ -103,7 +103,13 @@ def config():
                                            # deployment (unlike 5 of the other 6 science variables).
             "VARIABLE_LABEL": "Temperature (°C)",
             "COLOR_SCALE": "Thermal",
-            "LINE_COLOR": "#f4a261",      # uniform color for ALL active glider tracks.
+            "LINE_COLOR": "#37474f",      # every track that is NOT the current selection.
+            "SELECTED_COLOR": "#f4a261",  # the track you clicked. Applied by the
+                                           # `glider_highlight` cell through a data-driven
+                                           # paint expression keyed on each feature's own
+                                           # "deployment" property, so selecting never
+                                           # rebuilds the map (see that cell, and `map`'s
+                                           # note about never re-running).
             "DEPTH_POSITIVE_DOWN": True,
         },
     }
@@ -120,9 +126,14 @@ def about_note(mo):
       straight from C-PROOF's own server (`data/cproof_https.py`, refreshed hourly) -- current to the
       hour rather than the IOOS DAC archive's multi-day lag (see `data/README.md`). Only deployments
       with an observation inside the trailing `CONFIG_MAP["GLIDER"]["ACTIVE_DAYS"]` window are shown,
-      colored by `CONFIG_MAP["GLIDER"]["VARIABLE"]`. Click a track to see a 3D curtain plot of that
-      deployment. Data is real-time and **not calibrated** -- only a gross-range screen has been
-      applied.
+      and only the part of each track that falls *inside* that window is drawn -- so what you see is
+      where the gliders have been over that period, not their whole deployment history. Widen
+      `ACTIVE_DAYS` to see further back. A glider that has left the study box contributes nothing to
+      the window and drops off the map rather than leaving a stale line behind.
+
+      Click a track to select it: the whole transect turns orange and a 3D curtain plot of that
+      deployment opens in the sidebar. Data is real-time and **not calibrated** -- only a gross-range
+      screen has been applied.
 
     **Data shape:** `load_active_gliders()` standardizes every deployment to `Longitude`, `Latitude`,
     `Depth`, `<variable>` -- the same schema `glider_lib.load_platform_data()` produces for a plain
@@ -246,13 +257,32 @@ def map(
         for _rec, _segment in _glider_segments
     ]
     _glider_points_collection = {"type": "FeatureCollection", "features": _glider_point_features}
+
+    # Selection highlight, as a data-driven paint expression rather than a rebuild.
+    # MapLibre evaluates this per feature against the "deployment" property every feature
+    # already carries, so switching the highlight is a one-property update pushed from
+    # `glider_highlight` -- the map itself is never rebuilt, which this cell must never do
+    # (see its note below). "" is a sentinel matching no deployment, so nothing starts
+    # highlighted; `glider_highlight` re-sends this same shape with the selected name.
+    # Every segment split from one deployment carries that deployment's name, so clicking
+    # any segment lights up all of them -- the whole transect, not just the piece clicked.
+    def _highlight_expr(selected=""):
+        return [
+            "case",
+            ["==", ["get", "deployment"], selected],
+            CONFIG_MAP["GLIDER"]["SELECTED_COLOR"],
+            CONFIG_MAP["GLIDER"]["LINE_COLOR"],
+        ]
+
+    glider_highlight_expr = _highlight_expr
+
     _glider_point_layer = Layer(
         id="glider-segment-markers",
         type=LayerType.CIRCLE,
         source="glider-points",
         paint={
             "circle-radius": 5,
-            "circle-color": CONFIG_MAP["GLIDER"]["LINE_COLOR"],
+            "circle-color": _highlight_expr(),
             "circle-stroke-width": 1,
             "circle-stroke-color": "#ffffff",
         },
@@ -262,7 +292,7 @@ def map(
         id="glider-track-line",
         type=LayerType.LINE,
         source="glider-track",
-        paint={"line-color": CONFIG_MAP["GLIDER"]["LINE_COLOR"], "line-width": 3},
+        paint={"line-color": _highlight_expr(), "line-width": 3},
     )
 
     # All three source/layer pairs are baked directly into the initial style
@@ -429,7 +459,7 @@ def map(
       </details>
     </div>
     """)
-    return (map_ui,)
+    return glider_highlight_expr, map_ui, map_widget
 
 
 @app.cell
@@ -462,6 +492,28 @@ def click_plot(glider_records, map_ui, set_plot_closed):
     if selected_glider_record is not None:
         set_plot_closed(False)
     return (selected_glider_record,)
+
+
+@app.cell
+def glider_highlight(glider_highlight_expr, map_widget, selected_glider_record):
+    # Paint the selected deployment in SELECTED_COLOR, everything else in LINE_COLOR.
+    #
+    # This is a separate cell from `map` on purpose, for the same reason `click_plot` is:
+    # `map` builds `map_widget`/`map_ui` and must never re-run, or a brand-new widget gets
+    # forced into a live browser session and the mount breaks. Reading `map_widget` here and
+    # calling a method on it does not re-run `map` -- marimo's dataflow only runs downstream.
+    #
+    # `set_paint_property` goes out through the widget's post-render path, which is a plain
+    # comm `send()` rather than a synced traitlet, so these calls do not accumulate in widget
+    # state -- each click just sends one small property update. The flip side is that they are
+    # not replayed on reconnect: after a page reload the map comes back with the baked-in
+    # sentinel expression (nothing highlighted) until the next click. That degrades to "no
+    # highlight", never to a broken or misleading map, which is the right way round.
+    _selected = selected_glider_record["deployment"] if selected_glider_record else ""
+    _expression = glider_highlight_expr(_selected)
+    map_widget.set_paint_property("glider-track-line", "line-color", _expression)
+    map_widget.set_paint_property("glider-segment-markers", "circle-color", _expression)
+    return
 
 
 @app.cell(hide_code=True)

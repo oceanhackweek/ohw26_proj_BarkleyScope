@@ -23,6 +23,11 @@ Added `load_active_gliders(mode="live", variable_col="temperature", active_days=
   the map/click-plot cells) doesn't need to know which loader or mode produced a given DataFrame.
 - "Active" means "has an observation inside the last `active_days` days" — a convention this
   function imposes, since neither data source has its own deployment-status flag.
+- That window bounds the **observations returned**, not just which deployments qualify. `snapshot()`
+  uses `recent_days` only to pick deployments and then hands back each one's full history, so
+  without this cut an "active in the last day" map drew three-week tracks, and a glider whose newest
+  in-box fix was days old still drew a line whose endpoint read as its current position. A
+  deployment with nothing inside the window now drops out rather than showing a stale track.
 - Drops deployments with fewer than `min_points` valid observations (need at least 2 to form a
   map line).
 - Returns: `[{"deployment": "dfo-eva035-20260615", "glider": "eva035", "df": <DataFrame>}, ...]`
@@ -30,6 +35,12 @@ Added `load_active_gliders(mode="live", variable_col="temperature", active_days=
 ## `final_notebooks/Real-Time_Glider_WebApp.py`
 
 New marimo app that renders the map + glider curtain from `load_active_gliders()`'s output.
+
+Clicking a track selects it: the whole transect (every gap-split segment of that deployment, plus
+its markers) turns `SELECTED_COLOR` orange while the rest stay `LINE_COLOR` slate. The highlight is
+a data-driven MapLibre paint expression keyed on each feature's `deployment` property, pushed by the
+`glider_highlight` cell via `set_paint_property` — the `map` cell is never rebuilt, since it must
+never re-run once the widget is live.
 
 ## `pyproject.toml`
 

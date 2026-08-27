@@ -115,6 +115,13 @@ def load_active_gliders(mode="live", variable_col="temperature", active_days=1, 
     a deployment-status/is-active flag of its own that means quite this; this is a convention
     this function imposes.
 
+    That window also bounds what comes back, not just which deployments do: observations older
+    than `now - active_days` are dropped, so a caller drawing these frames draws only the part
+    of each transect that falls inside the window it asked for. A deployment that qualifies but
+    whose recent observations were all filtered out upstream (the live source clips to the study
+    box, so a glider currently outside it contributes nothing) therefore drops out entirely
+    rather than showing a stale track -- widen `active_days` to see it.
+
     data/ is a sibling directory of this file's own directory, not an installable package, so
     cproof_https/cproof_glider are imported lazily here (not at module load) via a sys.path
     insertion resolved relative to THIS file's location -- robust regardless of the caller's cwd.
@@ -140,6 +147,22 @@ def load_active_gliders(mode="live", variable_col="temperature", active_days=1, 
 
         archive = cproof.archive_path(mode)
         raw = cproof.read_archive(archive, last_days=active_days, variables=[variable_col])
+
+    # Trim the OBSERVATIONS to the window, not just the deployments.
+    #
+    # `snapshot(recent_days=...)` uses the window only to decide which deployments qualify --
+    # it then returns each qualifying deployment's entire history. So an "active in the last
+    # day" map would draw a three-week track, and, worse, a deployment whose newest in-box fix
+    # is days old still draws a line whose endpoint reads as "the glider is here" when the
+    # glider has since left the region entirely. Cutting to the window makes what is drawn
+    # match what the window claims.
+    #
+    # `read_archive(last_days=...)` already windows this way (`now - last_days`); applying the
+    # same cut here regardless of mode keeps the two sources honest about the same thing, and
+    # costs nothing on the branch that already did it.
+    if active_days is not None:
+        cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=active_days)
+        raw = raw[raw["time"] >= cutoff]
 
     deployments = []
     for deployment_id, group in raw.groupby("deployment", sort=False):
