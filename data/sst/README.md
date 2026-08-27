@@ -54,10 +54,29 @@ how one feeds the next. Numbers quoted were measured on the files in this folder
                              v
                        THE SHARED APP
                        (needs nothing from data/sst/)
+
+
+  THE POINT LAYER -- a clickable marker with two plots behind it
+
+    backfill_point_history.py  [NETWORK, ONCE, BY HAND]
+      8 requests, stride 7, ~4 min
+             |
+             v
+    folger_point_daily.csv          the expensive artifact, committed
+             |
+             |   + the Folger cell read out of ../sst_barkley_realtime.nc
+             |     (already downloaded; costs no request at all)
+             v
+      export_points.py  ---> ../sst_barkley_points.geojson  <-- HAND THIS OVER TOO
+      [NO NETWORK]            23 kB, 373 raw points + 86 months
+             |
+             v
+      preview_points.py -> preview_points.png   (offline check)
 ```
 
-**The file to hand over is `data/sst_barkley_layer.geojson`.** Everything above it is how
-that file gets made.
+**Two files to hand over:** `data/sst_barkley_layer.geojson` for the cells, and
+`data/sst_barkley_points.geojson` for the clickable point. Everything above them is how
+they get made.
 
 Everything below the fetch runs **offline**, including the mask. Only
 `fetch_sst_barkley.py`, `compare_resolutions.py` and `same_day_check.py` touch the
@@ -357,6 +376,61 @@ cannot run this code -- can read it straight from a raw GitHub URL.
 
 ---
 
+## The point layer
+
+A single clickable marker at **Folger Passage**, opening two stacked plots: raw SST above,
+monthly anomalies below, sharing an x-axis.
+
+### Why one marker for two stations
+
+Folger Deep (48.81376, −125.28078, ~96 m) and Folger Pinnacle (48.80829, −125.28150, 23 m)
+are **611 m apart**, and both fall inside cell `(48.8250, −125.2750)`. At 5.6 × 3.7 km the
+satellite cannot tell them apart — their series would be identical to the last decimal. So
+there is one marker, at the cell centre, listing both stations, rather than two markers
+implying a resolution the data does not have.
+
+### Why the backfill is separate, and slow
+
+The map layer asks for one day over the whole box. A point series asks the opposite — one
+cell over thousands of days — and the product stores **one global file per day**, so the
+server opens a file per timestep to return a single pixel from each. Measured on
+2026-08-27:
+
+| Request | Result |
+|---|---|
+| 30 days, every day | 11.1 s |
+| 90 days, every day | 97.5 s |
+| 365 days, every day | **failed** — 502 Proxy Error |
+| 365 days, **every 7th day** | **35.6 s** |
+
+Unstrided, the full record extrapolates to ~47 minutes and a single year exceeds NOAA's
+proxy timeout. At stride 7 it is ~370 values in about four minutes. That is why the
+backfilled years are sampled **weekly**, and why it runs once rather than on a schedule.
+
+### Why the ongoing cost is zero
+
+The daily job already downloads this cell — it fetches the whole box, and the cell is in
+it. `export_points.py` reads it straight out of the archive, so extending the series
+forward makes **no request at all**. The workflow's footprint against NOAA is exactly what
+it was before this feature existed.
+
+### The one thing that must not break
+
+`export_points.py` **writes the extended series back to the CSV.** The archive is a rolling
+seven-day window, so a day it holds now is gone from it next week. If the extension only
+lived in memory, every day between the end of the backfill and the current window would be
+seen once and lost, leaving a hole that grows by a day per run — silently, with nothing
+raising an error. `verify_sst.py` asserts the history reaches the archive's newest day for
+exactly this reason.
+
+### Mixed sampling, stated rather than hidden
+
+Backfilled months rest on ~4 weekly samples (±0.19 °C on the mean); months from the archive
+on ~30 (±0.07 °C). Means are unbiased either way, but precision is not — so **every month
+carries its `n`**, and the layer's `sampling` field says so in words.
+
+---
+
 ## Side branches
 
 These do not feed the app. They exist as evidence and as fast sanity checks.
@@ -446,9 +520,24 @@ or it is a tool you run deliberately — and the difference is stated rather tha
 | `barkley_sst.py` | Reads, flags, clips, colours | every consumer below |
 | `map_layers.py` | Builds MapLibre sources/layers | `sst_map_test.py` |
 | `export_layer.py` | **Writes the handed-over file** | run after every fetch |
-| `verify_sst.py` | 59 checks; the gate on all of it | run by hand |
+| `sst_anomalies.py` | Monthly means, climatology, anomalies | `export_points.py` |
+| `folger_point_daily.csv` | The point history. **Expensive to rebuild** | `export_points.py` |
+| `export_points.py` | **Writes the point layer** | run after every fetch |
+| `verify_sst.py` | 83 checks; the gate on all of it | run by hand |
 | `sst_map_test.py` | Our marimo app | opened in marimo |
 | `README.md`, `.gitignore` | This document; ignore rules | — |
+
+**Run once, by hand, and never in CI:**
+
+| File | Its job |
+|---|---|
+| `make_land_mask.py` | Builds the coastline mask |
+| `backfill_point_history.py` | Fetches years of history for the Folger cell |
+
+`backfill_point_history.py` is the one script here that asks NOAA for historical data, and
+the only one whose cost is measured in minutes. Its output is committed precisely so that
+nothing has to run it again. **The workflow must never call it** — see "The point layer"
+below.
 
 **Deliberate tools, not pipeline** — nothing imports them, and nothing breaks if they are
 not run. They are here because each answers a question that recurs:
@@ -457,6 +546,7 @@ not run. They are here because each answers a question that recurs:
 |---|---|---|
 | `preview_panels.py` | "Did the fetch work and does the field look sane?" | Offline, seconds, no widget kernel |
 | `preview_map.py` | "What does the layer actually look like?" | Standalone HTML, same ramp and geometry as the app |
+| `preview_points.py` | "Do the two popup panels look right?" | PNG from the point layer; doubles as a worked example of which field feeds which panel |
 | `compare_resolutions.py` | "How many pixels does each product put in the sound?" | **Needs network**; writes `compare_*.nc` |
 | `compare_panels.py` | "Does the finer product actually show more?" | Draws the `compare_*.nc` above — run that first |
 | `same_day_check.py` | "Is MUR smoother, or was that a different day?" | **Needs network** |

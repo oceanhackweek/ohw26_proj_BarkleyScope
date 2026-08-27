@@ -39,6 +39,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np                                                  # noqa: E402
+import pandas as pd                                                 # noqa: E402
 import xarray as xr                                                 # noqa: E402
 
 import barkley_sst as sst                                           # noqa: E402
@@ -345,6 +346,132 @@ def check_exported_layer(ds) -> None:
     check("carries the source caveat", bool(meta.get("source_caveat")))
 
 
+def check_point_layer(ds) -> None:
+    """The clickable point layer, and the history it is built from.
+
+    The failure this guards against is not a crash. It is the point series quietly
+    describing a different patch of ocean than the map around it -- which happens if the
+    study box or the product's resolution changes after the history was fetched, and
+    which looks entirely normal on a plot. So the cell is checked against the archive's
+    live grid, not trusted.
+    """
+    print("\npoint layer -- data/sst_barkley_points.geojson")
+    layer_path = sst.DATA_DIR / "sst_barkley_points.geojson"
+    history_path = Path(__file__).resolve().parent / "folger_point_daily.csv"
+
+    if not history_path.exists():
+        check("point history present", False,
+              f"{history_path.name} missing -- run backfill_point_history.py (once)")
+        return
+    if not layer_path.exists():
+        check("point layer present", False,
+              f"{layer_path.name} missing -- run export_points.py")
+        return
+
+    import json
+
+    layer = json.loads(layer_path.read_text())
+    check("is a FeatureCollection", layer.get("type") == "FeatureCollection")
+    check("holds exactly one point", len(layer["features"]) == 1,
+          f"{len(layer['features'])} features")
+
+    feature = layer["features"][0]
+    props = feature["properties"]
+    meta = layer["properties"]
+
+    check("geometry is a Point", feature["geometry"]["type"] == "Point")
+
+    # The cell must still be the one the archive would resolve today.
+    lon, lat = feature["geometry"]["coordinates"]
+    lats, lons = ds["latitude"].values, ds["longitude"].values
+    lat_edges, lon_edges = sst.cell_edges(lats), sst.cell_edges(lons)
+    i = int(np.searchsorted(lat_edges, lat)) - 1
+    j = int(np.searchsorted(lon_edges, lon)) - 1
+    check("marker sits on a cell of the current grid",
+          abs(float(lats[i]) - lat) < 1e-4 and abs(float(lons[j]) - lon) < 1e-4,
+          f"({lat:.4f}, {lon:.4f})")
+    check("coordinates are [lon, lat] order", -180 <= lon <= 180 and -90 <= lat <= 90)
+
+    # Both Folger stations must fall inside the cell the marker claims to cover.
+    inside = all(
+        lat_edges[i] <= s["lat"] < lat_edges[i + 1]
+        and lon_edges[j] <= s["lon"] < lon_edges[j + 1]
+        for s in props["stations"])
+    check("every listed station falls in that cell", inside,
+          f"{len(props['stations'])} stations")
+
+    # The history file's own record of its cell must agree, or the series predates a
+    # grid change and describes somewhere else.
+    header = {}
+    with open(history_path) as handle:
+        for line in handle:
+            if not line.startswith("#"):
+                break
+            key, _, value = line[1:].partition(":")
+            header[key.strip()] = value.strip()
+    check("history file was fetched for this same cell",
+          abs(float(header.get("cell_lat", "nan")) - lat) < 1e-4
+          and abs(float(header.get("cell_lon", "nan")) - lon) < 1e-4,
+          f"csv holds ({header.get('cell_lat')}, {header.get('cell_lon')})")
+
+    # The history must reach the archive, or there is a hole between them. The archive
+    # is a rolling window: a day it holds now is gone from it next week, so if
+    # export_points.py ever stops writing the CSV back, days fall between the two and
+    # are lost. Nothing errors when that happens -- the gap just grows -- which is
+    # exactly why it is asserted here.
+    history = pd.read_csv(history_path, comment="#")
+    history_end = pd.Timestamp(history["date"].max())
+    archive_end = pd.Timestamp(sst.dates(ds)[-1])
+    check("point history reaches the archive's newest day",
+          history_end >= archive_end,
+          f"history ends {history_end:%Y-%m-%d}, archive ends {archive_end:%Y-%m-%d}")
+    check("point history has no duplicate dates",
+          not history["date"].duplicated().any())
+
+    # --- Plot A ---
+    daily = props["daily"]
+    check("plot A has data", len(daily) > 100, f"{len(daily)} points")
+    dates = [pd.Timestamp(d["date"]) for d in daily]
+    check("plot A is in ascending date order", dates == sorted(dates))
+    check("plot A carries no NaN", all(np.isfinite(d["sst_C"]) for d in daily))
+    check("plot A values are plausible sea temperatures",
+          all(-2 <= d["sst_C"] <= 30 for d in daily),
+          f"{min(d['sst_C'] for d in daily):.1f}..{max(d['sst_C'] for d in daily):.1f} C")
+
+    # --- Plot B ---
+    monthly = props["monthly"]
+    months = [pd.Timestamp(m["month"] + "-01") for m in monthly]
+    check("plot B months are contiguous",
+          all((b.year - a.year) * 12 + (b.month - a.month) == 1
+              for a, b in zip(months, months[1:])),
+          f"{len(months)} months")
+    check("exactly one month is flagged partial",
+          sum(1 for m in monthly if m["partial"]) == 1,
+          str([m["month"] for m in monthly if m["partial"]]))
+    check("the partial month is the last one",
+          monthly[-1]["partial"] is True)
+
+    # The anomaly must equal the mean minus that calendar month's climatology. This is
+    # the one arithmetic claim the layer makes, so it is checked rather than assumed.
+    clim = {c["calendar_month"]: c["clim_C"] for c in props["climatology"]}
+    mismatched = [
+        m["month"] for m in monthly
+        if m["mean_C"] is not None and m["anom_C"] is not None
+        and clim.get(int(m["month"][5:7])) is not None
+        and abs((m["mean_C"] - clim[int(m["month"][5:7])]) - m["anom_C"]) > 0.011
+    ]
+    check("every anomaly equals mean minus climatology", not mismatched,
+          f"{len(mismatched)} mismatched")
+
+    check("climatology covers all twelve calendar months",
+          sorted(c["calendar_month"] for c in props["climatology"]) == list(range(1, 13)))
+
+    # --- the caveats the layer is obliged to carry ---
+    for key in ("baseline", "baseline_caveat", "sampling", "cell_caveat",
+                "depth_caveat", "source_caveat"):
+        check(f"carries {key}", bool(meta.get(key)))
+
+
 def check_colors() -> None:
     print("\ncolour ramp")
     stops = sst.color_stops()
@@ -392,6 +519,7 @@ def main(argv=None) -> int:
     # that is working correctly. The workflow runs the full check after re-exporting.
     if not args.archive_only:
         check_exported_layer(ds)
+        check_point_layer(ds)
     check_colors()
 
     print()
