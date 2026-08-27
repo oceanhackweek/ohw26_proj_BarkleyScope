@@ -84,7 +84,61 @@ def load_platform_data(path, file_type, column_map):
     return df
 
 
-def load_active_gliders(mode="live", variable_col="temperature", active_days=1, min_points=2):
+def mask_held_positions(frame, max_hold_hours=8.0, log=print):
+    """Drop observations whose reported position never changes for `max_hold_hours` or more.
+
+    A glider only gets a real fix when it surfaces, so the same position repeating across the
+    samples of one dive is ordinary -- those runs last a couple of minutes. A position that
+    repeats *identically* for hours is not a slow glider, it is a position that stopped being
+    reported: a bench or land simulation, a recovered glider still emitting its last fix, or a
+    stuck GPS. Whatever the cause, the coordinates are no longer telling you where anything is,
+    so plotting them draws a real-looking marker at a place nothing was measured.
+
+    The two cases separate cleanly in the actual record. Measured across the four C-PROOF
+    deployments in the Barkley box over 30 days (2026-08-27): 27,392 held runs of 0.03 h or
+    shorter, and exactly one of 141.35 h -- `dfo-eva035-20260713` repeating a single fix across
+    3,897 observations from 07-29 18:39 to 08-04 16:00. Nothing at all in between. The default
+    threshold sits in that empty band, so its exact value is not delicate.
+
+    Note this masks only *zero* movement -- an identical coordinate pair. A glider parked at the
+    surface still moves with the current (0.13-0.16 km/h in this record over 9-14 h stretches),
+    which is a real observation and is deliberately kept. Set `max_hold_hours=None` to disable.
+
+    Expects the long multi-deployment frame the loaders return (`deployment`, `time`,
+    `longitude`, `latitude`, ...) and returns it with the held rows removed.
+    """
+    if not max_hold_hours or frame.empty:
+        return frame
+
+    # Row selection below is by label, so a duplicated index would mask unrelated rows along
+    # with the intended ones. Both loaders hand back a clean RangeIndex; this makes the
+    # function safe to call on a frame that does not.
+    frame = frame.reset_index(drop=True)
+    keep = pd.Series(True, index=frame.index)
+    for name, group in frame.groupby("deployment", sort=False):
+        ordered = group.sort_values("time")
+        # Round before comparing: a genuine hold repeats the value bit-for-bit, and 6 decimals
+        # is ~0.1 m, far below any real movement, so this only guards against float noise.
+        lon = ordered["longitude"].round(6).to_numpy()
+        lat = ordered["latitude"].round(6).to_numpy()
+        starts_run = np.r_[True, (lon[1:] != lon[:-1]) | (lat[1:] != lat[:-1])]
+        run = np.cumsum(starts_run)
+
+        times = ordered["time"]
+        span = times.groupby(run).transform("max") - times.groupby(run).transform("min")
+        held = span >= pd.Timedelta(hours=max_hold_hours)
+        if held.any():
+            stuck = ordered[held.to_numpy()]
+            keep.loc[stuck.index] = False
+            log(f"  {name}: masked {len(stuck):,} observations holding a single position "
+                f"for {span[held].max().total_seconds() / 3600:.1f} h "
+                f"({stuck['time'].min():%Y-%m-%d %H:%M} -> {stuck['time'].max():%Y-%m-%d %H:%M})")
+
+    return frame[keep]
+
+
+def load_active_gliders(mode="live", variable_col="temperature", active_days=1, min_points=2,
+                        max_hold_hours=8.0):
     """Load every C-PROOF glider deployment with data in the trailing `active_days` window.
 
     `mode` picks the data source:
@@ -115,6 +169,18 @@ def load_active_gliders(mode="live", variable_col="temperature", active_days=1, 
     a deployment-status/is-active flag of its own that means quite this; this is a convention
     this function imposes.
 
+    Observations whose position is frozen for `max_hold_hours` or more are dropped first, so a
+    glider that is not really reporting a position -- a land/bench simulation, a recovered glider
+    still emitting its last fix, a stuck GPS -- contributes no track and no marker rather than a
+    convincing-looking one. See `mask_held_positions`; pass `max_hold_hours=None` to keep them.
+
+    That window also bounds what comes back, not just which deployments do: observations older
+    than `now - active_days` are dropped, so a caller drawing these frames draws only the part
+    of each transect that falls inside the window it asked for. A deployment that qualifies but
+    whose recent observations were all filtered out upstream (the live source clips to the study
+    box, so a glider currently outside it contributes nothing) therefore drops out entirely
+    rather than showing a stale track -- widen `active_days` to see it.
+
     data/ is a sibling directory of this file's own directory, not an installable package, so
     cproof_https/cproof_glider are imported lazily here (not at module load) via a sys.path
     insertion resolved relative to THIS file's location -- robust regardless of the caller's cwd.
@@ -140,6 +206,27 @@ def load_active_gliders(mode="live", variable_col="temperature", active_days=1, 
 
         archive = cproof.archive_path(mode)
         raw = cproof.read_archive(archive, last_days=active_days, variables=[variable_col])
+
+    # Before the window cut, not after: a stuck fix is diagnosed from how long it runs in the
+    # record as a whole. Trimming first would show only the tail of a long hold and could leave
+    # it looking short enough to keep.
+    raw = mask_held_positions(raw, max_hold_hours=max_hold_hours)
+
+    # Trim the OBSERVATIONS to the window, not just the deployments.
+    #
+    # `snapshot(recent_days=...)` uses the window only to decide which deployments qualify --
+    # it then returns each qualifying deployment's entire history. So an "active in the last
+    # day" map would draw a three-week track, and, worse, a deployment whose newest in-box fix
+    # is days old still draws a line whose endpoint reads as "the glider is here" when the
+    # glider has since left the region entirely. Cutting to the window makes what is drawn
+    # match what the window claims.
+    #
+    # `read_archive(last_days=...)` already windows this way (`now - last_days`); applying the
+    # same cut here regardless of mode keeps the two sources honest about the same thing, and
+    # costs nothing on the branch that already did it.
+    if active_days is not None:
+        cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=active_days)
+        raw = raw[raw["time"] >= cutoff]
 
     deployments = []
     for deployment_id, group in raw.groupby("deployment", sort=False):

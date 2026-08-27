@@ -1,0 +1,174 @@
+# Glider track changes — what the map draws, and what it refuses to draw
+
+Three changes to how `Real-Time_Glider_WebApp.py` represents glider tracks, plus one
+unresolved problem to be aware of before testing. `REALTIME_WEBAPP_SUMMARY.md` describes
+the app itself; this covers only what changed and why, with the measurements behind each
+decision.
+
+All three land in `glider_lib.load_active_gliders()` and the app's `map`/`glider_highlight`
+cells. Branch `shannon`, commits `ddb009c` and `73947dc`.
+
+---
+
+## Status: neither app rendered when tested in the hub's marimo
+
+**This is unresolved and was not diagnosed.** Both `Web_App_test.py` and
+`Real-Time_Glider_WebApp.py` failed to render when opened through marimo in the hub;
+investigation was stopped before a cause was found. What is known:
+
+- `Web_App_test.py` fails for a **known and separate** reason: it reads
+  `NE_San_Diego_Trough_Aug_2022.csv`, which is gitignored and absent from a clean
+  checkout, so `ctd_data` raises `FileNotFoundError`. Because `map` depends on that cell's
+  `ctd_lon`/`ctd_lat`, nothing downstream runs and the page is blank. A fix for this exists
+  in a local `git stash` (reads a real profile from the tracked archive instead) and has
+  not been applied — it touches `glider_lib.py`, which has since changed upstream, so
+  expect a possible conflict when unstashing.
+- `Real-Time_Glider_WebApp.py` runs clean **outside** the hub: as a script, and served by
+  both `marimo run` and `marimo edit` (HTTP 200, no errors). So the failure is
+  environmental or specific to how the hub launches marimo, not visible in the file itself.
+- The most likely candidate, documented in `MARIMO_APP_STATUS.md` under "Running it": after
+  a server restart the hub's marimo runs against a shared base env with none of the app's
+  packages installed, and `nb_imports` fails with `ModuleNotFoundError: No module named
+  'maplibre'`. **Check which cell is red before assuming it is anything else** — that
+  symptom looks identical to a blank map.
+- A second candidate, untested: `MODE="live"` fetches ~2.3 MB of netCDF per deployment from
+  C-PROOF on open. With `auto_instantiate = true` (set in `pyproject.toml`) every cell runs
+  at load, so a slow or blocked network shows as a blank page while it waits, not as an
+  error.
+
+---
+
+## 1. Tracks stop at the edge of the window they claim
+
+`ACTIVE_DAYS` only ever decided *which deployments* to show. `snapshot()` then returned
+each qualifying deployment's entire history, so a map labelled "active in the last day"
+drew three weeks of track:
+
+```
+before  dfo-eva035-20260826   8,093 obs   08-06 16:58 .. 08-27 16:39   (21 days)
+after   dfo-eva035-20260826     547 obs   08-26 20:48 .. 08-27 16:39   (~20 h)
+```
+
+The sharper version of the same bug: `dfo-hal1002-20260817` was still reporting, but its
+newest fix *inside the study box* was 08-22 — it had since moved to (-128.18, 48.11), about
+100 km west of the box. The map drew the five-day-old line anyway, and its endpoint read as
+"the glider is here."
+
+`load_active_gliders()` now cuts observations to `now - active_days` in every mode.
+(`read_archive()` already did this; `snapshot()` did not — the two sources disagreed.)
+
+**Consequence to expect:** a deployment with nothing inside the window drops off the map
+rather than leaving a stale line. At `ACTIVE_DAYS=1` that means **one** glider, not two.
+Widen to 7 and both return, each trimmed:
+
+```
+active_days=7   dfo-eva035-20260826   2,273 obs   08-21 04:36 .. 08-27 16:39
+                dfo-hal1002-20260817  2,704 obs   08-20 20:43 .. 08-22 18:57
+```
+
+## 2. The selected track turns orange
+
+Every track was the same orange, so with two gliders in the water nothing indicated which
+one the sidebar curtain plot belonged to. Unselected tracks are now slate
+(`LINE_COLOR: "#37474f"`); the selection keeps the orange (`SELECTED_COLOR: "#f4a261"`).
+
+The mechanism matters because **the `map` cell must never re-run** — rebuilding it forces a
+new widget into a live browser session and breaks the mount. So the highlight is a
+data-driven MapLibre paint expression keyed on the `deployment` property every feature
+already carries:
+
+```python
+["case", ["==", ["get", "deployment"], selected], SELECTED_COLOR, LINE_COLOR]
+```
+
+It is baked into the initial style with `selected = ""`, a sentinel matching nothing. A new
+`glider_highlight` cell — downstream of `click_plot`, so reading `map_widget` does not
+re-run `map` — pushes an updated expression via `set_paint_property` on each click, for both
+the line layer and the segment markers.
+
+Keying on the deployment name means **clicking any segment lights the whole transect**, not
+just the piece under the cursor.
+
+*Known limit:* those calls go out as transient comm messages rather than synced widget
+state, so after a full page reload nothing is highlighted until the next click. It degrades
+to "no highlight", never to a broken map.
+
+## 3. Frozen positions are not plotted at all
+
+A glider only gets a real fix when it surfaces, so the same coordinates repeating across the
+samples of one dive is ordinary — those runs last a couple of minutes. A position repeating
+*identically* for hours is something else: the position has stopped being reported. A land
+or bench simulation, a recovered glider still emitting its last fix, a stuck GPS. The
+coordinates no longer say where anything is, and plotting them puts a convincing marker
+where nothing was measured.
+
+The two cases separate cleanly. Across the four C-PROOF deployments in the Barkley box over
+30 days (measured 2026-08-27):
+
+| hold duration | runs | observations |
+|---|---|---|
+| ≤ 0.25 h | 27,392 | 27,398 |
+| 0.25–24 h | **0** | 0 |
+| > 24 h | 1 | 3,897 |
+
+That single outlier is `dfo-eva035-20260713` repeating one fix for **141.35 h** across 3,897
+observations, 07-29 18:39 → 08-04 16:00. Nothing at all falls in between, so the 8 h default
+(`MAX_HOLD_HOURS`) sits in a two-order-of-magnitude empty band and its exact value is not
+delicate.
+
+New `glider_lib.mask_held_positions()`, applied **before** the window trim — a stuck fix is
+diagnosed from how long it runs in the record as a whole, and trimming first would show only
+the tail of a long hold and could leave it looking short enough to keep.
+
+**Only zero movement is masked.** A glider drifting at the surface still moves with the
+current — 0.13–0.16 km/h over 9–14 h stretches in this same record — which is a real
+observation and is deliberately kept.
+
+**Consequence to expect:** at `ACTIVE_DAYS=30`, `dfo-eva035-20260713` disappears entirely.
+Every one of the 3,897 observations it contributes to a 30-day window *is* the frozen fix,
+so there is nothing left to draw.
+
+---
+
+## Verified
+
+Run, not assumed:
+
+- App runs clean as a script; `marimo run` and `marimo edit` both serve 200 with no errors.
+  (Not verified in the hub — see Status above.)
+- The `["case", ...]` expression survives `Layer` construction and `construct_basemap_style`
+  unmangled; `set_paint_property` emits `setPaintProperty` for both layers; deselecting
+  sends the match-nothing form.
+- Every rendered feature's `deployment` value matches a loaded record, so no click can fail
+  to highlight. Selecting `dfo-eva035-20260826` lights all 3 of its gap-split segments.
+- Masking on live data removes exactly the 141 h hold (3,897 observations) and nothing else;
+  the other three deployments lose zero rows, and the 0.133 km/h drift on 08-16 survives.
+  Longest surviving hold anywhere afterwards: 0.03 h.
+- `mask_held_positions` edge cases: empty frame passes through, `max_hold_hours=None`
+  disables, a 7 h hold is kept while a 24 h one is fully removed, deployments are isolated
+  from each other, and a duplicated index does not mask unrelated rows.
+- Gap-splitting still holds after trimming — no drawn step exceeds `MAX_GAP_DEG`.
+- PR #11's curtain-plot latitude fix is intact and exercised on this branch: a curtain built
+  through the app's own path returns `camera.eye = (1.25, -1.25, 1.25)`.
+
+## Still open
+
+Found during review, deliberately not addressed here:
+
+1. **`MODE="realtime"`/`"delayed"` skips mission collapsing.** Those branches call
+   `read_archive()` directly, which never collapses recovered-and-redeployed directories. At
+   `active_days=60` the archive returns both `dfo-eva035-20260713T0000` and
+   `dfo-eva035-20260806T0000`, sharing **7,007 identical positions** drawn one on top of the
+   other. `MODE="live"` is correct — `snapshot()` → `available_now()` → `collapse_missions()`.
+2. **The gap split is spatial only.** A segment can span a 79.8 h internal time gap and still
+   be drawn as one unbroken line, because the glider drifted less than `MAX_GAP_DEG` across
+   it. The geometry is nearly right; the implied "we observed this continuously" is not.
+3. **`click_plot` resolves to the first deployment in range, not the nearest.** Where two
+   tracks overlap near the Barkley mouth, clicks always resolve to whichever sorts first.
+4. **Flat-degree thresholds are anisotropic.** Both `MAX_GAP_DEG` and `_TOLERANCE_DEG` are
+   5.57 km north–south but 3.69 km east–west at 48.5°N. Observed max steps are 3.9–5.5 km,
+   right on that boundary, so this is active rather than theoretical.
+5. **The tracked archive double-counts.** `data/cproof_glider_realtime.nc` holds 5,391 rows
+   duplicated between the two eva035 deployment IDs; the dedup in `data/cproof_glider.py` is
+   keyed on `["deployment", "time", "depth"]` and cannot catch a cross-deployment duplicate.
+   Affects anything reading that archive, not just this app.
