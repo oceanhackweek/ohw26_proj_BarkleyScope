@@ -31,6 +31,7 @@ Exit status is 0 if every check passes, 1 otherwise.
 
 from __future__ import annotations
 
+import argparse
 import sys
 import warnings
 from pathlib import Path
@@ -363,7 +364,16 @@ def check_colors() -> None:
           midpoint)
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument(
+        "--archive-only", action="store_true",
+        help="skip the checks on the exported layer. Use this between a fetch and the "
+             "re-export that follows it: at that moment the export on disk is one "
+             "refresh behind the archive by definition, and reporting that as a failure "
+             "would halt a pipeline that is working correctly.")
+    args = parser.parse_args(argv)
+
     print(f"verifying {sst.SST_ARCHIVE}")
     try:
         ds = sst.read_grid()
@@ -377,7 +387,11 @@ def main() -> int:
     check_flags(ds)
     check_geojson(ds)
     check_clipped_geojson(ds)
-    check_exported_layer(ds)
+    # Skipped straight after a fetch: the export on disk is one refresh behind the
+    # archive at that moment, by definition, and failing there would stop a pipeline
+    # that is working correctly. The workflow runs the full check after re-exporting.
+    if not args.archive_only:
+        check_exported_layer(ds)
     check_colors()
 
     print()

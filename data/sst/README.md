@@ -344,7 +344,12 @@ it, but it means the layer looks the same in the shared app as in every figure h
 | `source_caveat` | The caption this data must carry |
 
 **Regenerate it after every fetch.** `verify_sst.py` checks the export against the archive
-and fails if the two have drifted.
+and fails if the two have drifted. The scheduled workflow below does both, so in practice
+the copy on `main` is already current.
+
+The file **is** committed. It compresses to about 0.14 MB, so a daily refresh costs roughly
+50 MB of history a year, and having it in the repo means anyone -- including an app that
+cannot run this code -- can read it straight from a raw GitHub URL.
 
 ---
 
@@ -458,6 +463,45 @@ their inputs are cached downloads and are not kept in the repo.
 
 ---
 
+## Keeping it current
+
+`.github/workflows/refresh-sst.yml` runs the whole pipeline daily and commits the result.
+
+| | |
+|---|---|
+| **Schedule** | 11:00 UTC daily |
+| **Manual** | Actions tab -> "Refresh satellite SST" -> Run workflow (with an optional `force`) |
+| **Writes** | `data/sst_barkley_realtime.nc`, `data/sst_barkley_layer.geojson` |
+| **Permissions** | `contents: write` -- nothing else |
+
+Steps, in order: fetch -> **verify** -> export -> **verify again** -> commit only if something
+changed. The verify step is a gate, not a formality: a bad archive fails the job before the
+layer is rebuilt, so the copy on `main` stays the last known-good one.
+
+Three things about the timing that are easy to get wrong:
+
+- **11:00 UTC is chosen to avoid 00:00**, which `watch-glider-transects.yml` uses. Both jobs
+  commit to `main`; two pushes in the same minute means one loses the race. Spacing them is
+  cheaper than retry logic (the workflow retries anyway, three times, rebasing between).
+- **The hour is otherwise arbitrary, and DST does not matter.** GitHub cron is UTC-only, but
+  the product publishes about two days behind on NOAA's cadence, so the time of day changes
+  nothing about which days come back.
+- **A scheduled workflow is disabled automatically after 60 days of repository inactivity.**
+  A real failure mode for a project that goes quiet after the hackweek.
+
+### When a run fails
+
+The fetcher fails safe: on any network error it exits non-zero and leaves the previous
+archive untouched, so the job stops before committing and `main` keeps serving valid data.
+The next run catches up on its own -- it asks what is published and takes the newest seven
+steps, so a skipped day costs nothing.
+
+This is not hypothetical. On 2026-08-27 NOAA's ERDDAP returned 503 for hours while it was
+being migrated; the fetch retried three times, exited 1, and left the archive intact. See the
+migration note in `fetch_sst_barkley.py` -- the dataset is being renamed as part of that move.
+
+---
+
 ## File inventory
 
 **Pipeline — required**
@@ -472,6 +516,7 @@ their inputs are cached downloads and are not kept in the repo.
 | `verify_sst.py` | 48 checks |
 | `map_layers.py` | Layer registry |
 | `sst_map_test.py` | The marimo app |
+| `../../.github/workflows/refresh-sst.yml` | Runs all of the above, daily |
 
 **Evidence and previews**
 
@@ -497,13 +542,9 @@ first.
 
 ## Known gaps
 
-1. **No scheduled refresh.** The archive is a snapshot, currently 3 days behind. Deciding
-   *where* the job runs is open — the team convention (`../README.md`) is a GitHub Action
-   on a personal fork. Note GitHub Actions cron is UTC-only, so midnight Pacific is 08:00
-   UTC in winter and 07:00 in summer; scheduling both and letting idempotence make the
-   wrong one a no-op is the simplest fix. Also note a scheduled workflow on a fork is
-   auto-disabled after 60 days of repo inactivity.
-2. **Not validated against the ONC sensors.** Highest-value next step, needs no network.
+1. **Not validated against the ONC sensors.** Highest-value next step, needs no network.
+   `data/folger/` has hourly Folger Pinnacle temperature back to 2011 and the satellite cell
+   sits ~1.3 km away.
 3. **Nearshore water the product withholds.** Clipping fixed colour appearing over land;
    it cannot recover SST the product never published for genuine nearshore water. Whether
    to fill those from a neighbour or leave them blank is undecided.

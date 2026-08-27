@@ -137,6 +137,15 @@ SOURCES = {
     # was refused. coastwatch.pfeg.noaa.gov redirects to coastwatch.noaa.gov, which
     # answers the default python-requests user-agent with 403. See HEADERS below.
     #
+    # NOAA is migrating this ERDDAP, and the redirect renames the dataset as it goes:
+    #     coastwatch.pfeg.noaa.gov/.../nesdisBLENDEDsstDNDaily   (what we request)
+    #  -> coastwatch.noaa.gov/.../noaacwBLENDEDsstDNDaily        (where it lands)
+    # Observed 2026-08-27, when the new host returned 503 for several hours while the
+    # old host still served metadata. Retries and the fail-safe cover an outage like
+    # that. What they cannot cover is the old id being retired: if this preset starts
+    # failing permanently, try server 'https://coastwatch.noaa.gov/erddap' with dataset
+    # 'noaacwBLENDEDsstDNDaily' before assuming the product is gone.
+    #
     # Chosen over the finer mur1km deliberately; see that entry.
     'blended5km': {
         'server': 'https://coastwatch.pfeg.noaa.gov/erddap',
