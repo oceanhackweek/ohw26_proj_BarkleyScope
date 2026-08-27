@@ -316,6 +316,10 @@ list everything reached *transitively*, including `xarray`, `netCDF4` and `reque
 | **Writes** | `../sst_barkley_layer.geojson` — 2.14 MB, 8,428 features |
 | **Run** | `python export_layer.py` · `--days 3` · `--pretty` |
 
+> **Integrating it into the app?** `INTEGRATING_THE_LAYER.md` in this folder is the
+> step-by-step for whoever owns the app — what is in the file, the fifteen lines that add
+> it, and the two architectural constraints that bite if ignored.
+
 `map_layers.py` hands our app live Python objects, which requires that app to import this
 folder. That is right when both live in one repo; it is not something you can hand
 someone. This writes the same layer as **one file** instead.
@@ -344,7 +348,12 @@ it, but it means the layer looks the same in the shared app as in every figure h
 | `source_caveat` | The caption this data must carry |
 
 **Regenerate it after every fetch.** `verify_sst.py` checks the export against the archive
-and fails if the two have drifted.
+and fails if the two have drifted. The scheduled workflow below does both, so in practice
+the copy on `main` is already current.
+
+The file **is** committed. It compresses to about 0.14 MB, so a daily refresh costs roughly
+50 MB of history a year, and having it in the repo means anyone -- including an app that
+cannot run this code -- can read it straight from a raw GitHub URL.
 
 ---
 
@@ -458,6 +467,72 @@ their inputs are cached downloads and are not kept in the repo.
 
 ---
 
+## Keeping it current
+
+`.github/workflows/refresh-sst.yml` runs the whole pipeline daily and commits the result.
+
+| | |
+|---|---|
+| **Schedule** | 11:00 UTC daily |
+| **Manual** | Actions tab -> "Refresh satellite SST" -> Run workflow (with an optional `force`) |
+| **Writes** | `data/sst_barkley_realtime.nc`, `data/sst_barkley_layer.geojson` |
+| **Permissions** | `contents: write` -- nothing else |
+
+Steps, in order: fetch -> **verify** -> export -> **verify again** -> commit only if something
+changed. The verify step is a gate, not a formality: a bad archive fails the job before the
+layer is rebuilt, so the copy on `main` stays the last known-good one.
+
+Three things about the timing that are easy to get wrong:
+
+- **11:00 UTC is chosen to avoid 00:00**, which `watch-glider-transects.yml` uses. Both jobs
+  commit to `main`; two pushes in the same minute means one loses the race. Spacing them is
+  cheaper than retry logic (the workflow retries anyway, three times, rebasing between).
+- **The hour is otherwise arbitrary, and DST does not matter.** GitHub cron is UTC-only, but
+  the product publishes about two days behind on NOAA's cadence, so the time of day changes
+  nothing about which days come back.
+- **A scheduled workflow is disabled automatically after 60 days of repository inactivity.**
+  A real failure mode for a project that goes quiet after the hackweek.
+
+### Being a good citizen of NOAA's server
+
+ERDDAP's own documentation is blunt about the one thing that gets clients banned:
+*"Don't make multiple simultaneous requests or you will be blacklisted!"* A blacklisted
+IP gets `HTTP 403 -- Your IP address is on this ERDDAP's request blacklist.`
+
+`fetch_sst_barkley.py` complies by construction: `collect()` is a plain sequential loop,
+never threaded. It also follows the softer guidance — ERDDAP advises admins to ask a
+script making a series of requests to *"be considerate of other users by putting a small
+pause (2 seconds?) in the script between requests"* — via `PAUSE = 2.0`, applied between
+day-requests but not before the first or after the last.
+
+Cost per run:
+
+| Situation | Requests | Added delay |
+|---|---|---|
+| Archive already current | **1** (the time axis, then it exits) | none |
+| Archive stale | **8** (1 axis + 7 days) | 12 s |
+
+The 503 that ERDDAP returns under load is request *shedding*, not a ban — it sheds when
+memory runs high. Retries with backoff are the right response; hammering is not.
+
+Worth knowing for CI specifically: GitHub Actions runs from **shared runner IPs**, so
+this job is pooled with every other Actions user hitting the same server. Being
+conspicuous there is not a cost we bear alone, which is why the pause is in the script
+rather than argued away as unnecessary for seven requests.
+
+### When a run fails
+
+The fetcher fails safe: on any network error it exits non-zero and leaves the previous
+archive untouched, so the job stops before committing and `main` keeps serving valid data.
+The next run catches up on its own -- it asks what is published and takes the newest seven
+steps, so a skipped day costs nothing.
+
+This is not hypothetical. On 2026-08-27 NOAA's ERDDAP returned 503 for hours while it was
+being migrated; the fetch retried three times, exited 1, and left the archive intact. See the
+migration note in `fetch_sst_barkley.py` -- the dataset is being renamed as part of that move.
+
+---
+
 ## File inventory
 
 **Pipeline — required**
@@ -472,6 +547,7 @@ their inputs are cached downloads and are not kept in the repo.
 | `verify_sst.py` | 48 checks |
 | `map_layers.py` | Layer registry |
 | `sst_map_test.py` | The marimo app |
+| `../../.github/workflows/refresh-sst.yml` | Runs all of the above, daily |
 
 **Evidence and previews**
 
@@ -497,13 +573,9 @@ first.
 
 ## Known gaps
 
-1. **No scheduled refresh.** The archive is a snapshot, currently 3 days behind. Deciding
-   *where* the job runs is open — the team convention (`../README.md`) is a GitHub Action
-   on a personal fork. Note GitHub Actions cron is UTC-only, so midnight Pacific is 08:00
-   UTC in winter and 07:00 in summer; scheduling both and letting idempotence make the
-   wrong one a no-op is the simplest fix. Also note a scheduled workflow on a fork is
-   auto-disabled after 60 days of repo inactivity.
-2. **Not validated against the ONC sensors.** Highest-value next step, needs no network.
+1. **Not validated against the ONC sensors.** Highest-value next step, needs no network.
+   `data/folger/` has hourly Folger Pinnacle temperature back to 2011 and the satellite cell
+   sits ~1.3 km away.
 3. **Nearshore water the product withholds.** Clipping fixed colour appearing over land;
    it cannot recover SST the product never published for genuine nearshore water. Whether
    to fill those from a neighbour or leave them blank is undecided.
@@ -511,6 +583,58 @@ first.
 ---
 
 ## Unrelated but unresolved
+
+### The glider fetcher makes 6 simultaneous ERDDAP requests
+
+**Not our code, and worth raising with whoever owns it.** Found while checking our own
+compliance, not by auditing theirs.
+
+`data/cproof_glider.py` fetches from **`https://gliders.ioos.us/erddap`** — the IOOS Glider
+DAC, an ERDDAP — using a thread pool six wide:
+
+```
+data/cproof_glider.py:295    max_workers: int = 6      # fetch_many()
+data/cproof_glider.py:310    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+data/cproof_glider.py:624    max_workers: int = 6      # update_archive(), the scheduled path
+```
+
+ERDDAP's admin documentation names this as the behaviour that gets a client banned:
+
+> *"Don't make multiple simultaneous requests or you will be blacklisted!"*
+> A blacklisted IP then gets `HTTP ERROR 403 - Access Forbidden -- Your IP address is on
+> this ERDDAP's request blacklist. Did you often submit more than one request at a time?"*
+
+Six is under the point where ERDDAP starts rejecting outright, but it is squarely the
+"more than one simultaneous request, repeatedly and continuously" pattern the blacklist
+exists for.
+
+**Why it is worth a quick fix rather than a shrug.** `data/cproof_https.py` (line 371) has
+the same shape against `cproof.uvic.ca`, and the glider path runs unattended from
+`.github/workflows/watch-glider-transects.yml`. Scheduled jobs run on **shared GitHub
+Actions IP ranges**, so a ban would not land only on this project — it would land on
+whoever else is using that runner pool.
+
+**The fix is a one-line default.** Nothing else has to change; `max_workers` is already a
+parameter, and `pool.map` over a single worker is just a sequential loop:
+
+```python
+max_workers: int = 1,       # was 6 -- ERDDAP blacklists concurrent clients
+```
+
+Better still, mirror what `fetch_sst_barkley.py` does after that change: a `PAUSE = 2.0`
+between requests, following ERDDAP's own suggestion that a script *"be considerate of
+other users by putting a small pause (2 seconds?) in the script between requests"*.
+
+Two things this is **not**:
+
+- **Not a problem for the SST pipeline.** Different server. A ban on `gliders.ioos.us`
+  would not touch our NOAA CoastWatch fetches.
+- **Not urgent in the sense of "it is broken now."** No 403 has been observed. This is a
+  standing risk, not a current outage.
+
+Sources: [ERDDAP admin documentation](https://erddap.github.io/docs/server-admin/additional-information)
+
+
 
 `data/PartII_API_Access.ipynb` carries a **live ONC API token in cell 3**. It has never
 entered git history, and the repo `.gitignore` now excludes the file so a stray

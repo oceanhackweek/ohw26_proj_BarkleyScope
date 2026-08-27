@@ -1,0 +1,107 @@
+name: Refresh satellite SST
+
+# Daily at 11:00 UTC, deliberately NOT the 00:00 slot watch-glider-transects.yml uses.
+# Both jobs commit to main, and two workflows pushing at the same minute means one loses
+# the race and fails on a non-fast-forward. Spacing them is cheaper than retry logic.
+#
+# The hour is otherwise arbitrary, and that is fine: the Geo-polar blend publishes about
+# two days behind on NOAA's own cadence, so running at midnight rather than midday does
+# not change which days come back. A late or skipped run costs nothing -- the fetch asks
+# what is published and takes the newest seven steps, so the next run catches up.
+on:
+  schedule:
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Refetch even if the archive is already current"
+        type: boolean
+        required: false
+        default: false
+
+# The job reads a public NOAA server and writes two files in data/. Nothing else.
+permissions:
+  contents: write
+
+concurrency:
+  group: refresh-sst
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # cartopy and shapely are NOT needed: they build the coastline mask, and
+      # data/sst/land_mask_1km.nc is committed. scipy is easy to miss -- it is imported
+      # inside flag_disconnected(), not at module level.
+      - name: Install dependencies
+        run: pip install requests pandas numpy xarray netCDF4 scipy
+
+      # Exits 0 without touching the network when the archive already holds the newest
+      # published steps, and exits 1 leaving the old archive intact on any network error.
+      - name: Fetch the archive
+        run: |
+          python data/sst/fetch_sst_barkley.py \
+            ${{ github.event.inputs.force == 'true' && '--force' || '' }}
+
+      # The gate. A bad archive must not reach the app, so this runs BEFORE the export
+      # and the job stops here if it fails.
+      #
+      # --archive-only matters: the full suite also checks the exported layer against
+      # the archive, and at this exact moment the export on disk is still the PREVIOUS
+      # refresh's. Without the flag this step fails on every day the fetch actually
+      # brings something new -- i.e. precisely when the job is working.
+      - name: Verify the archive
+        run: python data/sst/verify_sst.py --archive-only
+
+      - name: Rebuild the layer
+        run: python data/sst/export_layer.py
+
+      # Now the full suite, including the checks that compare the export against the
+      # archive it came from. Nothing is committed unless this passes.
+      - name: Verify the exported layer
+        run: python data/sst/verify_sst.py
+
+      - name: Commit if anything changed
+        id: commit
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/sst_barkley_realtime.nc data/sst_barkley_layer.geojson
+
+          if git diff --cached --quiet; then
+            echo "archive already current; nothing to commit"
+            exit 0
+          fi
+
+          # The subject reports the window the archive now covers. Read from the file
+          # rather than from the date, because the product publishes days behind and the
+          # useful fact is which days are in there, not when the job ran.
+          RANGE=$(python -c "
+          import sys; sys.path.insert(0, 'data/sst')
+          import barkley_sst as sst
+          d = sst.dates(sst.read_grid()); print(f'{d[0]} to {d[-1]}')
+          ")
+          git commit -m "Refresh satellite SST: ${RANGE}"
+
+          # Another workflow may have pushed between our checkout and now. Rebase rather
+          # than merge: this is a one-commit fast-forward, and a merge commit here would
+          # be noise in the history for no gain.
+          for attempt in 1 2 3; do
+            if git push; then
+              echo "pushed on attempt ${attempt}"
+              exit 0
+            fi
+            echo "push rejected, rebasing and retrying"
+            git pull --rebase --autostash origin main || exit 1
+          done
+          echo "could not push after 3 attempts"
+          exit 1

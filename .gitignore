@@ -30,8 +30,8 @@ data/cproof/
 #     token = os.environ["ONC_TOKEN"]
 data/PartII_API_Access.ipynb
 
-# Rebuilt from the archive in seconds by `python data/sst/export_layer.py`, and
-# regenerated after every fetch -- committing it would add ~2 MB to the history each
-# time. It is the file handed to the shared app, but it is a build artifact, not a
-# source. See data/sst/README.md, "export_layer.py -- the handoff".
-data/sst_barkley_layer.geojson
+# NFS "silly rename" artifacts. Home directories on the hub are NFS, where deleting or
+# replacing a file that another process still has open leaves a .nfs* stand-in behind
+# until that process closes it. They appear as untracked files and are not ours to keep --
+# e.g. replacing data/sst_barkley_realtime.nc while a marimo kernel is reading it.
+.nfs*
