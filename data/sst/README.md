@@ -580,6 +580,58 @@ first.
 
 ## Unrelated but unresolved
 
+### The glider fetcher makes 6 simultaneous ERDDAP requests
+
+**Not our code, and worth raising with whoever owns it.** Found while checking our own
+compliance, not by auditing theirs.
+
+`data/cproof_glider.py` fetches from **`https://gliders.ioos.us/erddap`** — the IOOS Glider
+DAC, an ERDDAP — using a thread pool six wide:
+
+```
+data/cproof_glider.py:295    max_workers: int = 6      # fetch_many()
+data/cproof_glider.py:310    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+data/cproof_glider.py:624    max_workers: int = 6      # update_archive(), the scheduled path
+```
+
+ERDDAP's admin documentation names this as the behaviour that gets a client banned:
+
+> *"Don't make multiple simultaneous requests or you will be blacklisted!"*
+> A blacklisted IP then gets `HTTP ERROR 403 - Access Forbidden -- Your IP address is on
+> this ERDDAP's request blacklist. Did you often submit more than one request at a time?"*
+
+Six is under the point where ERDDAP starts rejecting outright, but it is squarely the
+"more than one simultaneous request, repeatedly and continuously" pattern the blacklist
+exists for.
+
+**Why it is worth a quick fix rather than a shrug.** `data/cproof_https.py` (line 371) has
+the same shape against `cproof.uvic.ca`, and the glider path runs unattended from
+`.github/workflows/watch-glider-transects.yml`. Scheduled jobs run on **shared GitHub
+Actions IP ranges**, so a ban would not land only on this project — it would land on
+whoever else is using that runner pool.
+
+**The fix is a one-line default.** Nothing else has to change; `max_workers` is already a
+parameter, and `pool.map` over a single worker is just a sequential loop:
+
+```python
+max_workers: int = 1,       # was 6 -- ERDDAP blacklists concurrent clients
+```
+
+Better still, mirror what `fetch_sst_barkley.py` does after that change: a `PAUSE = 2.0`
+between requests, following ERDDAP's own suggestion that a script *"be considerate of
+other users by putting a small pause (2 seconds?) in the script between requests"*.
+
+Two things this is **not**:
+
+- **Not a problem for the SST pipeline.** Different server. A ban on `gliders.ioos.us`
+  would not touch our NOAA CoastWatch fetches.
+- **Not urgent in the sense of "it is broken now."** No 403 has been observed. This is a
+  standing risk, not a current outage.
+
+Sources: [ERDDAP admin documentation](https://erddap.github.io/docs/server-admin/additional-information)
+
+
+
 `data/PartII_API_Access.ipynb` carries a **live ONC API token in cell 3**. It has never
 entered git history, and the repo `.gitignore` now excludes the file so a stray
 `git add -A` cannot commit it — but **that `.gitignore` rule must be pushed for teammates
