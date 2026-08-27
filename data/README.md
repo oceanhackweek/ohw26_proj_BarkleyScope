@@ -304,30 +304,42 @@ python data/build_historical_tracks.py            # after any fetch_grid_adjuste
 python data/build_historical_tracks.py --dry-run  # report, write nothing
 ```
 
-**104 segments, 28,446 points, 0.72 MB** from the 26 deployments. Segments are cut
-wherever a straight line would invent a path — a spatial jump over `MAX_GAP_DEG` (0.05°,
-matching the app's own config) or a time gap over `MAX_GAP_HOURS` (24 h).
+**26 features, 28,452 points, 1.26 MB** — one MultiPoint feature per deployment.
+
+### Points, not lines
+
+Each profile is a point, exactly where and when the glider surfaced. Nothing is drawn
+between consecutive profiles, because there is no honest answer for what to draw: these
+files sample anywhere from every ~9 minutes to every ~1 hour, so any join either invents
+a path across a real gap or shreds a sparsely-sampled transit into dashes, depending on
+where a threshold lands. The 2026 deployments are the sparse ones — a flat 0.05° cut sat
+right at *their* p95 spacing and broke them into 12–17 dashed pieces, while denser 2025
+tracks drew solid. Those jumps were real glider motion at 1.3–3.1 km/h, not gaps.
+
+Points state what is known and assert nothing in between, so there is no threshold to
+tune and no way to mislead by getting one wrong.
+
+One feature per deployment (rather than 28,452 point features) keeps the per-deployment
+properties stored once, and lets a colour ramp paint a whole deployment with a single
+expression.
 
 ### Colouring by time
 
-Each feature carries two numeric ramp keys on a shared origin (`epoch_start`, the
-earliest deployment), so a consumer can switch without rebuilding the file:
-
 | Property | Meaning |
 |---|---|
-| `epoch_days` | Days since `epoch_start` of the **deployment**. One colour per deployment. Range `0`–`epoch_days_max`. |
-| `segment_epoch_days` | Days since `epoch_start` of **this segment's own first profile**. Honest where a file holds a mission it is not named for. Range `segment_epoch_days_min`–`_max`. |
-| `deployment_month`, `segment_month` | The same two, as `YYYY-MM`, for a discrete month/year legend. |
+| `epoch_days` | Days since `epoch_start` (the earliest deployment). The numeric key for a ramp — MapLibre's `interpolate` needs a number, not a date string. Range `0`–`epoch_days_max`. |
+| `deployment_start`, `deployment_month` | The same date as `YYYY-MM-DD` / `YYYY-MM`, for labels or a discrete month legend. |
+| `first_profile`, `last_profile`, `observed_month` | The span actually observed, from the data rather than the name. |
+| `times` | One `YYYY-MM-DDTHH:MM` per coordinate, same order — so a click-through can tie a point back to a profile without reopening the netCDF. |
 
 **Do not use the files' own `deployment_start` attribute** — 13 of the 26 carry a
 placeholder (`2018-07-12`, `2000-01-01`, `2022-12-07`). The date in the directory name is
 reliable and agrees with the first observation in 24 of 26; that is what these fields use.
 
 Two `bumblebee998` deployments carry an entire earlier mission from December 2022 ahead
-of the one they are named for, so their `segment_epoch_days` goes negative (down to
-`-444`). The origin is anchored on deployments rather than segments on purpose —
-anchoring on segments would stretch the ramp over 1,358 days to serve four outlier
-segments and flatten the difference across every other track.
+of the one they are named for — their `first_profile` gives them away. They are kept
+as-is for now; the ramp is anchored on deployment dates, so those points simply take
+their deployment's colour.
 
 ## Instrument sites — `folger_sites.geojson`
 

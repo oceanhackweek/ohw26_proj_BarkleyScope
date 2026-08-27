@@ -1,15 +1,19 @@
 """Precompute map-ready glider tracks from the gridded adjusted files.
 
 The map app cannot read ``data/glider_adjusted/`` directly -- that is 10.68 GB across
-26 files, and a browser needs about a megabyte of line geometry. But the geometry is
-all that a track layer wants, and the gridded files carry it cheaply: ``longitude``
-and ``latitude`` are 1-D coordinates on ``time``, one point per profile, so a whole
+26 files, and a browser needs about a megabyte of geometry. But geometry is all a
+track layer wants, and the gridded files carry it cheaply: ``longitude`` and
+``latitude`` are 1-D coordinates on ``time``, one point per profile, so a whole
 deployment's path is a few thousand pairs sitting next to gigabytes of depth grid.
 
-This script reads only those coordinates, clips to the study box, splits the result
-into drawable segments, and writes a GeoJSON small enough to commit. The app then
-loads one file and never touches the netCDF at all -- the same split
-``data/watch_glider_transects.py`` already uses for the real-time layer.
+**Tracks are points, not lines.** One point per profile, exactly where and when the
+glider surfaced. A LineString would have to decide what to draw *between* consecutive
+profiles, and there is no honest answer: these files sample anywhere from every ~9
+minutes to every ~1 hour, so any join either invents a path across a real gap or
+shreds a sparsely-sampled transit into dashes depending on where the threshold lands.
+Points state what is known and assert nothing about what happened in between, which
+also means this script has no gap-threshold to tune and no way to mislead by getting
+one wrong.
 
 Run it after any ``fetch_grid_adjusted.py`` run::
 
@@ -19,8 +23,9 @@ Run it after any ``fetch_grid_adjusted.py`` run::
 Outputs, both committed:
 
 ``glider_adjusted_tracks.geojson``
-    One LineString per drawable segment, carrying the properties a colour ramp and a
-    legend need.
+    One MultiPoint feature per deployment -- so a colour ramp keyed on deployment
+    date paints a whole deployment in one expression, and the per-deployment
+    properties are stored once rather than 28,000 times.
 
 ``folger_sites.geojson``
     The two Ocean Networks Canada instrument sites in Folger Passage, as Points.
@@ -47,21 +52,6 @@ DATA_DIR = Path(__file__).resolve().parent
 GRID_DIR = DATA_DIR / "glider_adjusted"
 TRACKS_OUT = DATA_DIR / "glider_adjusted_tracks.geojson"
 SITES_OUT = DATA_DIR / "folger_sites.geojson"
-
-#: Split a segment wherever consecutive points jump farther than this, in degrees.
-#: Matches the map app's ``CONFIG_MAP["GLIDER"]["MAX_GAP_DEG"]`` on purpose: a track
-#: clipped to the box leaves and re-enters, and joining those ends would draw a
-#: straight line through water the glider never crossed.
-MAX_GAP_DEG = 0.05
-
-#: Split a segment wherever consecutive profiles are farther apart than this, in
-#: hours. Profiles land roughly hourly, so this only fires on real discontinuities --
-#: but it fires hard when it needs to. Two ``bumblebee998`` files carry an entire
-#: earlier mission ahead of the one they are named for, separated by a ~14-month gap
-#: (see :func:`summarize` output). Without a time split those become one feature
-#: spanning 2022 to 2024, which both draws a bogus connector and drags a
-#: deployment-date colour ramp across two years to serve one track.
-MAX_GAP_HOURS = 24.0
 
 #: Coordinate precision in the output. 5 decimal places is ~1 m at this latitude,
 #: far finer than a glider's surface fix, and it roughly halves the file.
@@ -107,8 +97,7 @@ def deployment_date(name: str) -> pd.Timestamp:
     The files' own ``deployment_start`` attribute is not trustworthy: 13 of the 26
     carry a placeholder (``2018-07-12``, ``2000-01-01``, ``2022-12-07``) instead of
     the real date. C-PROOF's directory stamp is internally consistent and agrees with
-    the first observation in 24 of 26 files, so it is the better key -- and where it
-    disagrees, per-segment times computed from the data itself carry the truth.
+    the first observation in 24 of 26 files, so it is the better key.
     """
     match = _STAMP.search(name)
     if not match:
@@ -136,36 +125,17 @@ def read_track(path: Path) -> pd.DataFrame:
     return frame.sort_values("time").reset_index(drop=True)
 
 
-def split_segments(frame: pd.DataFrame) -> list[pd.DataFrame]:
-    """Break a track wherever drawing a straight line would invent a path.
-
-    Two independent cuts, both necessary. The spatial one catches a glider that left
-    the box and came back; the temporal one catches a file that holds more than one
-    mission. A segment of a single point is dropped -- a LineString needs two.
-    """
-    if len(frame) < 2:
-        return []
-
-    jump_deg = np.hypot(frame["lon"].diff(), frame["lat"].diff())
-    jump_hours = frame["time"].diff().dt.total_seconds() / 3600.0
-    cut = (jump_deg > MAX_GAP_DEG) | (jump_hours > MAX_GAP_HOURS)
-
-    segments = [part for _, part in frame.groupby(cut.cumsum())]
-    return [segment for segment in segments if len(segment) >= 2]
-
-
-def modal_month(segment: pd.DataFrame) -> str:
-    """The ``YYYY-MM`` that most of this segment's profiles fall in.
+def modal_month(frame: pd.DataFrame) -> str:
+    """The ``YYYY-MM`` that most of this deployment's profiles fall in.
 
     A deployment straddling a month boundary gets the month it mostly occupied,
     rather than whichever month happened to contain its first profile.
     """
-    months = segment["time"].dt.strftime("%Y-%m")
-    return Counter(months).most_common(1)[0][0]
+    return Counter(frame["time"].dt.strftime("%Y-%m")).most_common(1)[0][0]
 
 
 def build_tracks(grid_dir: Path = GRID_DIR, log=print) -> tuple[dict, list[dict]]:
-    """Every deployment's box-clipped track, as a GeoJSON FeatureCollection."""
+    """Every deployment's box-clipped profile positions, as MultiPoint features."""
     paths = sorted(grid_dir.glob("*/*_grid_adjusted.nc"))
     if not paths:
         raise SystemExit(f"no gridded files under {grid_dir} -- run fetch_grid_adjusted.py first")
@@ -177,46 +147,54 @@ def build_tracks(grid_dir: Path = GRID_DIR, log=print) -> tuple[dict, list[dict]
         name = path.name.replace("_grid_adjusted.nc", "")
         group = path.parent.name
         start = deployment_date(name)
-
         frame = read_track(path)
-        segments = split_segments(frame)
 
-        for index, segment in enumerate(segments):
-            coordinates = [
-                [round(lon, PRECISION), round(lat, PRECISION)]
-                for lon, lat in zip(segment["lon"], segment["lat"])
-            ]
-            features.append({
-                "type": "Feature",
-                "geometry": {"type": "LineString", "coordinates": coordinates},
-                "properties": {
-                    "deployment": name,
-                    "glider": name.split("-")[1],
-                    "group": group,
-                    "segment": index,
-                    "n_points": len(segment),
-                    # From the directory stamp -- one value for the whole deployment,
-                    # which is what "colour by time of deployment" means.
-                    "deployment_start": start.strftime("%Y-%m-%d"),
-                    "deployment_month": start.strftime("%Y-%m"),
-                    # From this segment's own profiles. These differ from the two
-                    # fields above exactly where a file holds a mission it is not
-                    # named for, so a ramp keyed on these stays honest there.
-                    "segment_start": segment["time"].iloc[0].strftime("%Y-%m-%dT%H:%M"),
-                    "segment_end": segment["time"].iloc[-1].strftime("%Y-%m-%dT%H:%M"),
-                    "segment_month": modal_month(segment),
-                },
-            })
+        if frame.empty:
+            report.append({"deployment": name, "group": group,
+                           "stamp": start.strftime("%Y-%m-%d"), "points": 0, "months": []})
+            log(f"  {name:26s}     0 pts in box -- skipped")
+            continue
+
+        features.append({
+            "type": "Feature",
+            "geometry": {
+                "type": "MultiPoint",
+                "coordinates": [
+                    [round(lon, PRECISION), round(lat, PRECISION)]
+                    for lon, lat in zip(frame["lon"], frame["lat"])
+                ],
+            },
+            "properties": {
+                "deployment": name,
+                "glider": name.split("-")[1],
+                "group": group,
+                "n_points": len(frame),
+                # From the directory stamp -- one value for the whole deployment,
+                # which is what "colour by time of deployment" means.
+                "deployment_start": start.strftime("%Y-%m-%d"),
+                "deployment_month": start.strftime("%Y-%m"),
+                # Observed span, from the data rather than the name. These disagree
+                # with the two fields above exactly where a file holds a mission it
+                # is not named for -- see the note build_tracks prints.
+                "first_profile": frame["time"].iloc[0].strftime("%Y-%m-%dT%H:%M"),
+                "last_profile": frame["time"].iloc[-1].strftime("%Y-%m-%dT%H:%M"),
+                "observed_month": modal_month(frame),
+                # One timestamp per coordinate, same order. Kept so the click-through
+                # plots another team member is adding can tie a point back to a
+                # profile without reopening the netCDF. Minute resolution: a glider
+                # surfaces for minutes, and seconds would cost ~90 KB for nothing.
+                "times": [t.strftime("%Y-%m-%dT%H:%M") for t in frame["time"]],
+            },
+        })
 
         report.append({
             "deployment": name,
             "group": group,
             "stamp": start.strftime("%Y-%m-%d"),
-            "profiles_in_box": len(frame),
-            "segments": len(segments),
-            "months": sorted({modal_month(s) for s in segments}),
+            "points": len(frame),
+            "months": sorted(frame["time"].dt.strftime("%Y-%m").unique()),
         })
-        log(f"  {name:26s} {len(frame):5d} pts in box -> {len(segments):3d} segment(s)")
+        log(f"  {name:26s} {len(frame):5d} pts in box")
 
     return _finalize(features), report
 
@@ -227,39 +205,22 @@ def _finalize(features: list[dict]) -> dict:
     ``epoch_days`` exists because MapLibre's ``interpolate`` needs a number to ramp
     over, and a date string is not one. Zero is the earliest deployment in the set,
     so the domain is stable and the app does not have to scan the features to find
-    its own colour bounds -- it reads ``epoch_days_max`` and the month list here.
+    its own colour bounds.
     """
     if not features:
         return {"type": "FeatureCollection", "features": []}
 
     starts = [pd.Timestamp(f["properties"]["deployment_start"]) for f in features]
-    segment_starts = [pd.Timestamp(f["properties"]["segment_start"]) for f in features]
-
-    # The origin is the earliest *deployment*, deliberately not the earliest segment.
-    # Anchoring on segments would hand the origin to the two bumblebee998 files that
-    # carry a stray 2022 mission, stretching the ramp over 1358 days to serve four
-    # outlier segments and flattening the colour difference across everything else.
-    # Those segments instead go negative, which is honest and which a consumer can
-    # clamp to the light end -- the domain below says exactly how far negative.
     earliest = min(starts).normalize()
 
-    for feature, start, segment_start in zip(features, starts, segment_starts):
-        # Two ramp keys on one origin, so the app can switch between "one colour per
-        # deployment" and "colour by when this piece was actually flown" without
-        # rebuilding this file. They agree everywhere except those bumblebee998
-        # deployments -- which is the whole point of keeping both.
+    for feature, start in zip(features, starts):
         feature["properties"]["epoch_days"] = int((start - earliest).days)
-        feature["properties"]["segment_epoch_days"] = int((segment_start - earliest).days)
 
-    segment_days = [f["properties"]["segment_epoch_days"] for f in features]
-    months = sorted({f["properties"]["segment_month"] for f in features})
     return {
         "type": "FeatureCollection",
         "epoch_start": earliest.strftime("%Y-%m-%d"),
         "epoch_days_max": max(f["properties"]["epoch_days"] for f in features),
-        "segment_epoch_days_min": min(segment_days),
-        "segment_epoch_days_max": max(segment_days),
-        "months": months,
+        "months": sorted({f["properties"]["deployment_month"] for f in features}),
         "features": features,
     }
 
@@ -283,9 +244,9 @@ def summarize(collection: dict, report: list[dict], log=print) -> None:
     """Print the things worth eyeballing before committing the output."""
     features = collection["features"]
     points = sum(f["properties"]["n_points"] for f in features)
-    log(f"\n{len(report)} deployment(s), {len(features)} segment(s), {points} points")
+    log(f"\n{len(features)} deployment(s), {points} points")
     log(f"colour domain: {collection['epoch_start']} + 0..{collection['epoch_days_max']} days")
-    log(f"months spanned: {len(collection['months'])} "
+    log(f"deployment months: {len(collection['months'])} "
         f"({collection['months'][0]} .. {collection['months'][-1]})")
 
     # A deployment whose data predates its own name is carrying someone else's
@@ -297,9 +258,9 @@ def summarize(collection: dict, report: list[dict], log=print) -> None:
             log(f"  NOTE {entry['deployment']}: holds data from {', '.join(early)}, "
                 f"before its own stamp {entry['stamp']}")
 
-    empty = [e["deployment"] for e in report if e["segments"] == 0]
+    empty = [e["deployment"] for e in report if e["points"] == 0]
     if empty:
-        log(f"  NOTE no drawable segment in box: {', '.join(empty)}")
+        log(f"  NOTE no profiles in box: {', '.join(empty)}")
 
 
 def main(argv: list[str] | None = None) -> int:
