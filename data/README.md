@@ -291,6 +291,60 @@ every downloaded file is opened and checked for `temperature_adjusted` carrying 
 values. Anything failing is moved to `glider_adjusted/rejected/` rather than deleted, so
 the call stays inspectable. All 26 currently pass.
 
+## Map-ready tracks — `glider_adjusted_tracks.geojson`
+
+The map app cannot read the gridded set directly: that is 10.68 GB, and a browser needs
+about a megabyte of line geometry. But geometry is all a track layer wants, and the
+gridded files carry it cheaply — `longitude`/`latitude` are 1-D coordinates on `time`,
+one point per profile. `build_historical_tracks.py` reads only those, clips to `BOX`,
+splits into drawable segments, and writes a file small enough to commit.
+
+```bash
+python data/build_historical_tracks.py            # after any fetch_grid_adjusted.py run
+python data/build_historical_tracks.py --dry-run  # report, write nothing
+```
+
+**104 segments, 28,446 points, 0.72 MB** from the 26 deployments. Segments are cut
+wherever a straight line would invent a path — a spatial jump over `MAX_GAP_DEG` (0.05°,
+matching the app's own config) or a time gap over `MAX_GAP_HOURS` (24 h).
+
+### Colouring by time
+
+Each feature carries two numeric ramp keys on a shared origin (`epoch_start`, the
+earliest deployment), so a consumer can switch without rebuilding the file:
+
+| Property | Meaning |
+|---|---|
+| `epoch_days` | Days since `epoch_start` of the **deployment**. One colour per deployment. Range `0`–`epoch_days_max`. |
+| `segment_epoch_days` | Days since `epoch_start` of **this segment's own first profile**. Honest where a file holds a mission it is not named for. Range `segment_epoch_days_min`–`_max`. |
+| `deployment_month`, `segment_month` | The same two, as `YYYY-MM`, for a discrete month/year legend. |
+
+**Do not use the files' own `deployment_start` attribute** — 13 of the 26 carry a
+placeholder (`2018-07-12`, `2000-01-01`, `2022-12-07`). The date in the directory name is
+reliable and agrees with the first observation in 24 of 26; that is what these fields use.
+
+Two `bumblebee998` deployments carry an entire earlier mission from December 2022 ahead
+of the one they are named for, so their `segment_epoch_days` goes negative (down to
+`-444`). The origin is anchored on deployments rather than segments on purpose —
+anchoring on segments would stretch the ramp over 1,358 days to serve four outlier
+segments and flatten the difference across every other track.
+
+## Instrument sites — `folger_sites.geojson`
+
+The two Ocean Networks Canada sites in Folger Passage, as Points, written by the same
+script. Coordinates come from the ONC metadata shipped with the data already in
+`data/folger/`, not from a gazetteer.
+
+| Site | Code | Lon | Lat | Depth |
+|---|---|---|---|---|
+| Folger Deep | `FGPD` | −125.280955 | 48.813797 | 98 m |
+| Folger Pinnacle | `FGPPN` | −125.281500 | 48.808292 | 25 m |
+
+They are ~650 m apart and differ by ~70 m of depth, so they must not be collapsed to one
+marker — at low zoom they overplot. Note that `data/sst/compare_panels.py` labels
+(48.814, −125.281) as "Folger Pinnacle", but per ONC that coordinate is Folger *Deep*;
+do not copy it from there.
+
 ## Files
 
 | File | Purpose |
@@ -298,6 +352,7 @@ the call stays inspectable. All 26 currently pass.
 | `cproof_glider.py` | The shared library — discovery, fetching, QC, netCDF I/O, update logic |
 | `cproof_https.py` | Live view straight from the C-PROOF server — what is in the box now |
 | `fetch_grid_adjusted.py` | Bulk download of the gridded `_grid_adjusted.nc` mission set |
+| `build_historical_tracks.py` | Turns that set into committable map tracks + the Folger sites |
 | `upload_glider_adjusted.sh` | Mirrors that set to the GitHub release, one deployment at a time |
 | `watch_glider_transects.py` | Nightly check for new transects in the box; writes the manifest |
 | `update_cproof_glider.py` | CLI entry point for the scheduled job |
