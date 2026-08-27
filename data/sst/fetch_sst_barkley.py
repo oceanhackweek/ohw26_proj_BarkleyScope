@@ -49,9 +49,9 @@ CHOOSING THE PRODUCT
     signal.
 
 USAGE
-    python fetch_oisst_barkley.py              # top up if stale, else do nothing
-    python fetch_oisst_barkley.py --force      # refetch regardless
-    python fetch_oisst_barkley.py --verbose    # log every request URL
+    python fetch_sst_barkley.py              # top up if stale, else do nothing
+    python fetch_sst_barkley.py --force      # refetch regardless
+    python fetch_sst_barkley.py --verbose    # log every request URL
 """
 
 import argparse
@@ -485,7 +485,7 @@ def assemble(collected):
     ds.attrs['source_preset'] = ACTIVE_SOURCE
     ds.attrs['history'] = (
         f'{datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}: '
-        f'fetched by fetch_oisst_barkley.py from {src["server"]}'
+        f'fetched by fetch_sst_barkley.py from {src["server"]}'
     )
     ds.attrs['queryUrls'] = '\n'.join(urls)
 

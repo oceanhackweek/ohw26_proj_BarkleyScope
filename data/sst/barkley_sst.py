@@ -67,6 +67,11 @@ DATA_DIR = SST_DIR.parent                          # data     -- the shared data
 # place for every dataset it loads. Named to match its sibling cproof_glider_realtime.nc.
 SST_ARCHIVE = DATA_DIR / 'sst_barkley_realtime.nc'
 
+# A ~1 km land/water mask covering the same box, built once by make_land_mask.py from
+# MUR L4's land mask. Only the mask is borrowed, never MUR's temperatures. Used to clip
+# the 5 km cells to their water area -- see cell_polygons(clip=True).
+LAND_MASK = SST_DIR / 'land_mask_1km.nc'
+
 # The study box, identical to cproof_glider.BOX and to CONFIG_MAP["REGION"] in both map
 # apps. The archive covers it with about 5 km of margin on every side, because ERDDAP
 # snaps outward to whole cells.
@@ -221,7 +226,124 @@ def flag_disconnected(ds):
     return ocean & (labelled != main)
 
 
-def cell_polygons(ds, date=None, decimals=2):
+_WATER_MASK_CACHE = {}
+
+
+def water_mask(path=None):
+    """The ~1 km water mask as (lat, lon, boolean array). Cached; read once per process.
+
+    Raises a pointed error rather than silently falling back, because a caller that asked
+    for clipping and quietly got unclipped rectangles would be worse than a failure.
+    """
+    path = Path(path or LAND_MASK)
+    key = str(path)
+    if key not in _WATER_MASK_CACHE:
+        if not path.exists():
+            raise FileNotFoundError(
+                f'{path.name} is missing -- run make_land_mask.py to build it. '
+                'It is needed to clip 5 km cells to their water area.')
+        ds = xr.open_dataset(path)
+        _WATER_MASK_CACHE[key] = (ds['latitude'].values,
+                                  ds['longitude'].values,
+                                  ds['water'].values.astype(bool))
+    return _WATER_MASK_CACHE[key]
+
+
+def _merge_runs(mask):
+    """Boolean 2-D mask -> few half-open rectangles (r0, r1, c0, c1) covering the True.
+
+    One rectangle per True cell would multiply the feature count by ~25 and the payload
+    with it. Merging horizontal runs, then stacking identical runs vertically, gets a
+    typical coastal cell down to a handful of boxes with no loss of shape.
+    """
+    runs = []
+    n_rows, n_cols = mask.shape
+    for r in range(n_rows):
+        c = 0
+        while c < n_cols:
+            if mask[r, c]:
+                c0 = c
+                while c < n_cols and mask[r, c]:
+                    c += 1
+                runs.append((r, c0, c))
+            else:
+                c += 1
+
+    merged, pending = [], {}
+    for r, c0, c1 in runs:
+        key = (c0, c1)
+        prior = pending.get(key)
+        if prior is not None and prior[1] == r:          # directly below the last one
+            pending[key] = (prior[0], r + 1)
+        else:
+            if prior is not None:
+                merged.append((prior[0], prior[1], c0, c1))
+            pending[key] = (r, r + 1)
+    for (c0, c1), (r0, r1) in pending.items():
+        merged.append((r0, r1, c0, c1))
+    return merged
+
+
+class _Clipper:
+    """Turns one 5 km cell into the water part of its footprint, at ~1 km.
+
+    The 5 km product's land mask is coarser than the coastline: some of its ocean cells
+    are wholly land, and many are mostly land, so drawn whole they put colour on
+    hillsides. Clipping keeps the value exactly as it is -- still a 5 km measurement --
+    and only corrects the footprint it is painted over.
+    """
+
+    def __init__(self, mask_path=None):
+        lat, lon, water = water_mask(mask_path)
+        self.water = water
+        self.lat_edges = cell_edges(lat)
+        self.lon_edges = cell_edges(lon)
+        self.lat, self.lon = lat, lon
+
+    # The parent cell's bounds arrive rounded to `decimals`, while the mask's own
+    # coordinates are unrounded float32. At a boundary those disagree by ~1e-6, which is
+    # enough to move searchsorted by one and silently discard a whole edge column of
+    # water. This tolerance is far larger than that noise and far smaller than the
+    # mask's own 0.01 deg spacing, so it cannot pull in a neighbouring cell.
+    _EPS = 1e-3
+
+    def polygons(self, south, north, west, east, decimals):
+        """MultiPolygon coordinates for the water inside this cell.
+
+        Returns [] when the cell is entirely land -- the caller drops it. Returns the
+        unclipped rectangle when the mask does not reach this cell at all, since absence
+        of coverage is not evidence of land.
+        """
+        i0, i1 = np.searchsorted(self.lat, [south - self._EPS, north - self._EPS])
+        j0, j1 = np.searchsorted(self.lon, [west - self._EPS, east - self._EPS])
+        block = self.water[i0:i1, j0:j1]
+        if block.size == 0:
+            # Outside the mask's coverage -- keep the cell as it was rather than
+            # inventing a verdict about it.
+            return [[[[west, south], [east, south], [east, north],
+                      [west, north], [west, south]]]]
+        if not block.any():
+            return []
+        if block.all():
+            # Wholly water -- keep the plain rectangle rather than rebuilding it.
+            return [[[[west, south], [east, south], [east, north],
+                      [west, north], [west, south]]]]
+
+        polygons = []
+        for r0, r1, c0, c1 in _merge_runs(block):
+            # Clamp to the parent cell: a 1 km cell straddling the edge must not make
+            # the clipped footprint larger than the cell it came from.
+            s = round(max(float(self.lat_edges[i0 + r0]), south), decimals)
+            n = round(min(float(self.lat_edges[i0 + r1]), north), decimals)
+            w = round(max(float(self.lon_edges[j0 + c0]), west), decimals)
+            e = round(min(float(self.lon_edges[j0 + c1]), east), decimals)
+            if n <= s or e <= w:
+                continue                      # collapsed by rounding; nothing to draw
+            polygons.append([[[w, s], [e, s], [e, n], [w, n], [w, s]]])
+        return polygons
+
+
+def cell_polygons(ds, date=None, decimals=3, clip=False):
     """One day of SST as a GeoJSON FeatureCollection, one rectangle per ocean cell.
 
     Both map stacks in this repo take GeoJSON directly -- ipyleaflet as a GeoJSON layer,
@@ -232,6 +354,19 @@ def cell_polygons(ds, date=None, decimals=2):
 
     Each feature carries its value, its centre, and whether it is flagged, so the layer
     can style and label from properties alone without reaching back into the array.
+
+    `decimals` rounds the polygon coordinates. The netCDF stores its axes as float32, so
+    an edge that should read -126.85 arrives as -126.84999465942383; left alone, every
+    corner ships seventeen digits of float noise and a week of cells runs to megabytes.
+    Three decimals is ~100 m, well inside a 5 km cell, and rounds this product's edges
+    exactly since they fall on multiples of 0.05 degrees.
+
+    `clip=True` replaces each rectangle with the water part of its own footprint, taken
+    from the ~1 km mask in land_mask_1km.nc, and drops cells with no water in them at
+    all. This is a rendering correction, not a data one: the value is unchanged and is
+    still a 5 km measurement. Without it, a 5.6 x 3.7 km rectangle laid over a coastline
+    this convoluted paints colour well inland -- Alberni Inlet is about a kilometre wide,
+    so the cell covering it is mostly hillside. Geometry becomes MultiPolygon.
     """
     variable = variable_name(ds)
     available = dates(ds)
@@ -243,9 +378,10 @@ def cell_polygons(ds, date=None, decimals=2):
     field = np.asarray(step[variable].values, dtype=float)
     lat = step['latitude'].values
     lon = step['longitude'].values
-    lat_edges = cell_edges(lat)
-    lon_edges = cell_edges(lon)
+    lat_edges = np.round(cell_edges(lat), decimals)
+    lon_edges = np.round(cell_edges(lon), decimals)
     flagged = flag_disconnected(ds)
+    clipper = _Clipper() if clip else None
 
     features = []
     for i in range(field.shape[0]):
@@ -253,18 +389,31 @@ def cell_polygons(ds, date=None, decimals=2):
             value = field[i, j]
             if not np.isfinite(value):
                 continue                        # land, or a gap the analysis left
-            south, north = lat_edges[i], lat_edges[i + 1]
-            west, east = lon_edges[j], lon_edges[j + 1]
-            features.append({
-                'type': 'Feature',
-                'geometry': {
+            # Plain floats, not numpy scalars: these get JSON-serialised into a map
+            # style, and numpy scalars serialise at full precision regardless of rounding.
+            south, north = float(lat_edges[i]), float(lat_edges[i + 1])
+            west, east = float(lon_edges[j]), float(lon_edges[j + 1])
+            if clipper is None:
+                geometry = {
                     'type': 'Polygon',
                     # GeoJSON rings are [lon, lat] and must close on the first point.
                     'coordinates': [[[west, south], [east, south], [east, north],
                                      [west, north], [west, south]]],
-                },
+                }
+            else:
+                parts = clipper.polygons(south, north, west, east, decimals)
+                if not parts:
+                    # No water anywhere in this cell at 1 km. The 5 km product called it
+                    # ocean and gave it a temperature; it is land. Drop it.
+                    continue
+                geometry = {'type': 'MultiPolygon', 'coordinates': parts}
+            features.append({
+                'type': 'Feature',
+                'geometry': geometry,
                 'properties': {
-                    'sst': round(float(value), decimals),
+                    # 0.01 C: finer than an L4 analysis can justify, and `decimals`
+                    # now governs geometry rather than this.
+                    'sst': round(float(value), 2),
                     'lat': round(float(lat[i]), 4),
                     'lon': round(float(lon[j]), 4),
                     'flagged': bool(flagged[i, j]),
