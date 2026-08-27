@@ -1,0 +1,15 @@
+# Project-level marimo config -- NOT a Python package definition (this repo
+# has no installable package). The only thing marimo reads from this file is
+# [tool.marimo.*]; marimo finds it by walking up from whichever notebook it
+# opens, so this applies to every marimo notebook under this repo, including
+# final_notebooks/Real-Time_Glider_WebApp.py.
+#
+# auto_instantiate can't be set from a notebook's own PEP 723 script header --
+# marimo strips that key there on purpose, since letting a notebook force its
+# own auto-run would mean opening a file executes code with no explicit "run"
+# action from whoever opened it. A project pyproject.toml is operator-trusted
+# instead, which is why it lives here.
+[tool.marimo.runtime]
+auto_instantiate = true  # run every cell on open -- the map + glider tracks
+                          # should render as soon as the app launches, not
+                          # only after manually stepping through each cell.

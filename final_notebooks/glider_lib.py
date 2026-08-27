@@ -84,6 +84,82 @@ def load_platform_data(path, file_type, column_map):
     return df
 
 
+def load_active_gliders(mode="live", variable_col="temperature", active_days=1, min_points=2):
+    """Load every C-PROOF glider deployment with data in the trailing `active_days` window.
+
+    `mode` picks the data source:
+
+    - `"live"` (default) -- data/cproof_https.py's `snapshot()`, read straight from C-PROOF's
+      own server. Per data/README.md this runs several days ahead of the IOOS DAC archive below,
+      so it's the right source for a "what is in the water right now" panel: the DAC has been
+      caught missing a deployment entirely, or stopping days short of one still reporting to
+      C-PROOF. Refreshed hourly; `active_days=1` is a meaningful "active today" filter here.
+    - `"realtime"` / `"delayed"` -- data/cproof_glider.py's netCDF archive via its
+      read_archive() entry point. `"realtime"` is a daily-refreshed *snapshot* committed to
+      git, so it can be stale between pulls (`active_days=1` can go quiet even when a glider
+      is actively reporting live); `"delayed"` is the calibrated historical record, months to
+      years behind. Use one of these only when you specifically want the archived/QC'd view
+      rather than the current one, or to work offline without hitting the network.
+
+    `snapshot()` returns the exact same columns `read_archive()` does (see data/README.md), so
+    both branches below reshape identically from here -- this function reshapes that one long
+    multi-deployment DataFrame into a list of per-deployment DataFrames, each standardized to
+    Longitude/Latitude/Depth/Time/<variable_col>. The first four match load_platform_data()'s own
+    Longitude/Latitude/Depth/<variable_col> schema, so plot_glider_curtain() and the map/click_plot
+    cells don't need to know which loader (or which mode) produced a given DataFrame -- `Time` is
+    the one column load_platform_data() doesn't produce, added here because a click-plot time
+    slider needs real observation timestamps to filter and label by, and no other consumer needs
+    load_platform_data()'s output to carry a `Time` column today.
+
+    "Active" means "has an observation inside the last `active_days` days" -- neither source has
+    a deployment-status/is-active flag of its own that means quite this; this is a convention
+    this function imposes.
+
+    data/ is a sibling directory of this file's own directory, not an installable package, so
+    cproof_https/cproof_glider are imported lazily here (not at module load) via a sys.path
+    insertion resolved relative to THIS file's location -- robust regardless of the caller's cwd.
+
+    Returns a list of dicts, one per deployment with data in the window and at least `min_points`
+    valid observations (fewer than 2 points can't form a map LineString):
+
+        [{"deployment": "dfo-eva035-20260615", "glider": "eva035", "df": <DataFrame>}, ...]
+    """
+    import sys
+    from pathlib import Path
+
+    _data_dir = str(Path(__file__).resolve().parent.parent / "data")
+    if _data_dir not in sys.path:
+        sys.path.insert(0, _data_dir)
+
+    if mode == "live":
+        import cproof_https as live
+
+        raw = live.snapshot(recent_days=active_days)
+    else:
+        import cproof_glider as cproof
+
+        archive = cproof.archive_path(mode)
+        raw = cproof.read_archive(archive, last_days=active_days, variables=[variable_col])
+
+    deployments = []
+    for deployment_id, group in raw.groupby("deployment", sort=False):
+        clean = group.dropna(subset=["longitude", "latitude", "depth", variable_col])
+        if len(clean) < min_points:
+            continue
+        df = pd.DataFrame({
+            "Longitude": standardize_longitude(clean["longitude"].to_numpy()),
+            "Latitude": clean["latitude"].to_numpy(),
+            "Depth": clean["depth"].to_numpy(),
+            "Time": clean["time"].reset_index(drop=True),   # keep as a Series, NOT .to_numpy() --
+                                                               # a plain .to_numpy() on a tz-aware
+                                                               # column silently drops tz info to
+                                                               # naive datetime64 in pandas.
+            variable_col: clean[variable_col].to_numpy(),
+        })
+        deployments.append({"deployment": deployment_id, "glider": clean["glider"].iloc[0], "df": df})
+    return deployments
+
+
 def generate_sample_glider_data(num_points=500, variable_col="Temperature",
                                  lon_range=(-126.8, -124.5), lat_range=(47.85, 49.36),
                                  max_depth=150):
