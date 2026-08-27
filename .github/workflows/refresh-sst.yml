@@ -74,9 +74,19 @@ jobs:
       - name: Rebuild the layer
         run: python data/sst/export_layer.py
 
-      # Now the full suite, including the checks that compare the export against the
-      # archive it came from. Nothing is committed unless this passes.
-      - name: Verify the exported layer
+      # Extends the Folger point series with whatever days the fetch just brought, then
+      # recomputes its monthly means and anomalies. Reads only the archive and the
+      # committed history CSV and makes NO request of its own, so this step leaves the
+      # job's footprint against NOAA exactly as it was.
+      #
+      # It is emphatically NOT backfill_point_history.py. That one asks NOAA for years
+      # of history, takes minutes, and is run by hand exactly once. See its header.
+      - name: Rebuild the point layer
+        run: python data/sst/export_points.py
+
+      # Now the full suite, including the checks that compare both exports against the
+      # archive they came from. Nothing is committed unless this passes.
+      - name: Verify the exported layers
         run: python data/sst/verify_sst.py
 
       - name: Commit if anything changed
@@ -84,7 +94,11 @@ jobs:
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/sst_barkley_realtime.nc data/sst_barkley_layer.geojson
+          # The point history CSV is staged too: export_points.py extends it with each
+          # day the fetch brings, and dropping that would make the series restart from
+          # the backfill on every checkout.
+          git add data/sst_barkley_realtime.nc data/sst_barkley_layer.geojson \
+                  data/sst_barkley_points.geojson data/sst/folger_point_daily.csv
 
           if git diff --cached --quiet; then
             echo "archive already current; nothing to commit"
