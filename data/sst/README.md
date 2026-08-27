@@ -489,6 +489,33 @@ Three things about the timing that are easy to get wrong:
 - **A scheduled workflow is disabled automatically after 60 days of repository inactivity.**
   A real failure mode for a project that goes quiet after the hackweek.
 
+### Being a good citizen of NOAA's server
+
+ERDDAP's own documentation is blunt about the one thing that gets clients banned:
+*"Don't make multiple simultaneous requests or you will be blacklisted!"* A blacklisted
+IP gets `HTTP 403 -- Your IP address is on this ERDDAP's request blacklist.`
+
+`fetch_sst_barkley.py` complies by construction: `collect()` is a plain sequential loop,
+never threaded. It also follows the softer guidance — ERDDAP advises admins to ask a
+script making a series of requests to *"be considerate of other users by putting a small
+pause (2 seconds?) in the script between requests"* — via `PAUSE = 2.0`, applied between
+day-requests but not before the first or after the last.
+
+Cost per run:
+
+| Situation | Requests | Added delay |
+|---|---|---|
+| Archive already current | **1** (the time axis, then it exits) | none |
+| Archive stale | **8** (1 axis + 7 days) | 12 s |
+
+The 503 that ERDDAP returns under load is request *shedding*, not a ban — it sheds when
+memory runs high. Retries with backoff are the right response; hammering is not.
+
+Worth knowing for CI specifically: GitHub Actions runs from **shared runner IPs**, so
+this job is pooled with every other Actions user hitting the same server. Being
+conspicuous there is not a cost we bear alone, which is why the pause is in the script
+rather than argued away as unnecessary for seven requests.
+
 ### When a run fails
 
 The fetcher fails safe: on any network error it exits non-zero and leaves the previous

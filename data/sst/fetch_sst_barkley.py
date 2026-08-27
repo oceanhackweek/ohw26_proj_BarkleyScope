@@ -210,6 +210,15 @@ OUT = Path(__file__).resolve().parent.parent / 'sst_barkley_realtime.nc'
 TIMEOUT = 120    # seconds per request; generous, ERDDAP can be slow under load
 RETRIES = 3      # attempts before giving up, with exponential backoff between
 
+# Pause between successive day-requests. ERDDAP's own admin documentation asks that a
+# script making a series of requests "be considerate of other users by putting a small
+# pause (2 seconds?) in the script between requests", and its blacklist exists for
+# clients that ignore that. Seven requests are hardly a large number, but this runs
+# unattended from GitHub Actions -- shared runner IPs, where we are pooled with every
+# other Actions user hitting the same server -- so the cost of being conspicuous is not
+# ours alone to bear. Fourteen seconds on a refresh day is not worth arguing about.
+PAUSE = 2.0
+
 # NOAA CoastWatch -- where coastwatch.pfeg.noaa.gov now redirects -- rejects the default
 # python-requests user-agent outright with 403 Forbidden. That failure is easy to
 # misread as "this product has no data over our box", because a 403 arrives looking much
@@ -432,9 +441,14 @@ def collect(steps):
     returning a short file.
     """
     collected = []
-    for timestamp, label in steps:
+    for index, (timestamp, label) in enumerate(steps):
         if len(collected) == N_DAYS:
             break
+
+        # Not before the first request, and not after the last: the pause is there to
+        # space requests out, not to pad the run.
+        if index:
+            time.sleep(PAUSE)
 
         ds = fetch_step(label, timestamp)
 
