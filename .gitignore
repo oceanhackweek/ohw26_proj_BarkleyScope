@@ -29,3 +29,9 @@ data/cproof/
 # environment variable first:
 #     token = os.environ["ONC_TOKEN"]
 data/PartII_API_Access.ipynb
+
+# NFS "silly rename" artifacts. Home directories on the hub are NFS, where deleting or
+# replacing a file that another process still has open leaves a .nfs* stand-in behind
+# until that process closes it. They appear as untracked files and are not ours to keep --
+# e.g. replacing data/sst_barkley_realtime.nc while a marimo kernel is reading it.
+.nfs*
