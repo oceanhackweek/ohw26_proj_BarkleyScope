@@ -23,6 +23,14 @@ Added `load_active_gliders(mode="live", variable_col="temperature", active_days=
   the map/click-plot cells) doesn't need to know which loader or mode produced a given DataFrame.
 - "Active" means "has an observation inside the last `active_days` days" — a convention this
   function imposes, since neither data source has its own deployment-status flag.
+- Observations whose position is frozen for `max_hold_hours` (default 8) or more are dropped first,
+  via the new `mask_held_positions()`. Position only updates when a glider surfaces, so a fix
+  repeating for a couple of minutes is ordinary; one repeating for hours means the position has
+  stopped being reported at all — a land or bench simulation, a recovered glider still emitting its
+  last fix, a stuck GPS — and drawing it puts a convincing marker where nothing was measured. The
+  two cases separate cleanly in the record: 27,392 held runs of ≤0.03 h versus a single 141.35 h one
+  (`dfo-eva035-20260713`, 3,897 observations, 07-29 → 08-04), nothing in between. Real drift is
+  **not** masked — a parked glider still moves with the current (0.13–0.16 km/h here).
 - That window bounds the **observations returned**, not just which deployments qualify. `snapshot()`
   uses `recent_days` only to pick deployments and then hands back each one's full history, so
   without this cut an "active in the last day" map drew three-week tracks, and a glider whose newest

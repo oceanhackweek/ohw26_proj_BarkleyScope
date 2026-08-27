@@ -94,6 +94,14 @@ def config():
                                            # archive snapshot that had gone stale -- not needed
                                            # once reading live.)
             "MIN_TRACK_POINTS": 2,        # a MapLibre LineString needs >=2 coordinate pairs.
+            "MAX_HOLD_HOURS": 8,          # drop observations whose position is frozen this long.
+                                           # Position only updates when a glider surfaces, so a
+                                           # fix repeating for a couple of minutes is normal; one
+                                           # repeating for hours means the position stopped being
+                                           # reported at all (land/bench simulation, recovered
+                                           # glider still emitting, stuck GPS) and should not be
+                                           # drawn anywhere. Real drift is NOT masked -- a parked
+                                           # glider still moves with the current. None disables.
             "MAX_GAP_DEG": 0.05,          # split a track wherever consecutive points jump farther
                                            # than this (degrees) -- matches click_plot's own
                                            # _TOLERANCE_DEG by design, so we never draw a "fake"
@@ -153,6 +161,7 @@ def glider_data(CONFIG_MAP, load_active_gliders):
         variable_col=glider_var,
         active_days=_glider_cfg["ACTIVE_DAYS"],
         min_points=_glider_cfg["MIN_TRACK_POINTS"],
+        max_hold_hours=_glider_cfg["MAX_HOLD_HOURS"],
     )
 
     if _glider_cfg["DEPTH_POSITIVE_DOWN"]:
