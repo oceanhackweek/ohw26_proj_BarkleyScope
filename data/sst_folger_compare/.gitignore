@@ -1,0 +1,20 @@
+# The two figures below ARE committed, deliberately, despite being generated:
+#
+#   sst_vs_folger_four_panel.png  <- make_comparison.py
+#   preview_compare_points.png    <- preview_compare_points.py
+#
+# They were ignored at first, on the reasoning that both rebuild offline in seconds and
+# a ~450 kB PNG rewritten on every run is the history bloat data/README.md warns about.
+# That reasoning was wrong about the audience: the figure IS the deliverable here, and
+# requiring a reviewer to run the folder before they can see what it produces is a worse
+# cost than the bytes. Reviewed on GitHub, they render inline.
+#
+# The bloat concern is real but bounded: this folder is not on a refresh workflow (the
+# ONC exports are static), so these change only when someone re-downloads inputs.
+# If that stops being true, ignore them again rather than letting every run add a MB.
+
+# NOT ignored, deliberately:
+#   ../folger_compare_points.geojson   the layer the map app consumes. Committed for the
+#                                      same reason sst_barkley_layer.geojson is -- the
+#                                      app reads it from main, and a consumer should
+#                                      never have to run this folder to get it.
