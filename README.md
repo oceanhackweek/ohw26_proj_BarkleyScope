@@ -3,13 +3,13 @@
 ## Project Name
 
 **BarkleyScope** — an interactive map of what is being measured in and around Barkley
-Sound, BC.
+Sound, BC. Currently restricted to Temperature observations. 
 
 ## One-line Description
 
-A marimo + MapLibre web app that puts C-PROOF glider tracks (live and historical),
-satellite sea surface temperature, and the Ocean Networks Canada instrument sites in
-Folger Passage on one map, with click-through plots of the underlying profiles.
+A marimo + MapLibre web app with realtime and histrical temperature data from C-PROOF glider tracks (live and historical),
+satellite sea surface temperature (near real time), and the Ocean Networks Canada instrument sites in
+Barkley sound on one map (historical). 
 
 ## The app
 
