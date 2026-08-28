@@ -147,6 +147,11 @@ def config():
             # output, so switching views costs one file read and no network.
             "TRACKS": "../data/glider_adjusted_tracks.geojson",
             "SITES": "../data/folger_sites.geojson",
+            # Every site with a day-of-year temperature climatology, precomputed by
+            # data/build_climatology_sites.py from the records
+            # contributor_folders/Dwight/onc_climatology.py builds those climatologies
+            # from. Clicking one in the historical view opens its climatology plot.
+            "CLIMATOLOGY_SITES": "../data/climatology_sites.geojson",
             # Points, not lines. The gridded files sample anywhere from every ~9 min to
             # every ~1 h, so any line joining consecutive profiles either invents a path
             # across a real gap or shreds a sparse transit into dashes depending on where
@@ -169,6 +174,12 @@ def config():
             "SITE_RADIUS": 6,
             "SITE_COLOR_LIVE": "#9aa3ab",
             "SITE_COLOR_HISTORICAL": "#0b0b0b",
+            # The non-Folger climatology sites -- La Perouse Bank and the five Barkley
+            # Canyon moorings -- are drawn only in the historical view, so they take
+            # the historical colour and never need to switch. Folger keeps its own
+            # layer, which is in both views; drawing it twice here would double-plot
+            # it in the historical view.
+            "CLIM_SITE_RADIUS": 6,
         },
     }
     return (CONFIG_MAP,)
@@ -202,8 +213,19 @@ def about_note(mo, sst_meta):
 
     - **Historical** -- the switch at the top swaps the live view for every deployment on the
       **Southern Line** and the **SVI Shelf from Bamfield** line that has a gridded adjusted file:
-      26 deployments, 28,452 profile positions, coloured by deployment date. Clicking does nothing
-      in this view yet -- the click-through plots are still to come.
+      26 deployments, 28,452 profile positions, coloured by deployment date.
+
+      This view also shows the eight moorings and buoys that have a day-of-year temperature
+      climatology -- the two Folger Passage sites, five Barkley Canyon moorings from 398 m down to
+      983 m, and the La Perouse Bank buoy. **Click any of them** for its climatology: the day-of-year
+      mean with 1 and 2 sd bands, the current year overlaid. Records run from 9 to 34 years depending
+      on the site. Built by `contributor_folders/Dwight/onc_climatology.py`; the screening rules and
+      caveats are in that folder's `CLIMATOLOGY.md`.
+
+      Zoom in before clicking in Barkley Canyon: Hydrates, Mid-East and Axis sit within 0.016 deg of
+      each other and Folger Deep and Pinnacle within 0.006, so at the opening zoom they overplot. The
+      click resolves to the nearest site, not the first one drawn, so zooming is enough to separate
+      them.
 
       Each profile is drawn as its own point and nothing is drawn between them. The gridded files
       sample anywhere from every ~9 minutes to every ~1 hour, so a line joining consecutive profiles
@@ -217,7 +239,7 @@ def about_note(mo, sst_meta):
       own `deployment_start` attribute is wrong in 13 of the 26.
 
     - **Folger Deep** and **Folger Pinnacle** -- the two Ocean Networks Canada instrument sites in
-      Folger Passage, shown in *both* views as fixed reference points. They are greyed out over the
+      Folger Passage, the only sites shown in *both* views, as fixed reference points. They are greyed out over the
       real-time view, where a reporting glider is the subject, and black over the historical one,
       where the moorings are the only continuously-present instruments on the map. They sit ~650 m
       apart and overplot until you zoom in.
@@ -234,6 +256,33 @@ def about_note(mo, sst_meta):
     `Depth`, `<variable>` -- the same schema `glider_lib.load_platform_data()` produces for a plain
     CSV/NetCDF file, so any future platform wired in through that loader works with the map/click-plot
     cells unmodified.
+
+    ---
+
+    **Data sources and citations.** Everything on this map is somebody else's observation. Cite the
+    source, not this app.
+
+    - **Ocean Networks Canada** -- the Folger Passage and Barkley Canyon moorings, and the
+      climatologies built from them. Each deployment has its own DOI; the full list, as ONC issues it,
+      is in `data/folger/Folger_Citations.md` and `data/barkley/Barkley_Citations.md`. Data portal:
+      [data.oceannetworks.ca](https://data.oceannetworks.ca). Form:
+      *Ocean Networks Canada Society. YEAR. Station Instrument Deployed DATE. https://doi.org/...*
+
+    - **C-PROOF** (Canadian-Pacific Robotic Ocean Observing Facility, University of Victoria) -- every
+      glider deployment, live and historical.
+      [cproof.uvic.ca/gliderdata/deployments](https://cproof.uvic.ca/gliderdata/deployments/) is the
+      live server this app reads; the quality-controlled archive is on the
+      [IOOS Glider DAC](https://gliders.ioos.us/erddap). Real-time values are **not calibrated**.
+
+    - **DFO / MEDS** -- buoy C46206, La Perouse Bank, 1988-2022, via
+      [Fisheries and Oceans Canada](https://www.meds-sdmm.dfo-mpo.gc.ca).
+
+    - **NOAA CoastWatch** -- the Geo-polar blended SST analysis, via
+      [coastwatch.pfeg.noaa.gov/erddap](https://coastwatch.pfeg.noaa.gov/erddap). Basemap tiles are
+      Esri Ocean.
+
+    Per-source detail, including what was screened and why, lives in `data/README.md`,
+    `data/sst/README.md` and `data/folger_taylor/METHODS.md`.
     """)
     return (about_md,)
 
@@ -288,12 +337,27 @@ def historical_data(CONFIG_MAP):
     historical_tracks = _load(_cfg["TRACKS"], "tracks")
     folger_sites = _load(_cfg["SITES"], "Folger sites")
 
+    # Every site with a climatology, Folger included: the map draws the Folger pair
+    # from `folger_sites` above (they belong in both views), so the LAYER below gets
+    # only the others -- but the click hit-test reads this whole list, which is what
+    # makes all eight clickable in the historical view.
+    climatology_sites = _load(_cfg["CLIMATOLOGY_SITES"], "climatology sites")
+    climatology_layer_sites = {
+        "type": "FeatureCollection",
+        "features": [_f for _f in climatology_sites["features"]
+                     if _f["properties"].get("group") != "folger"],
+    }
+
     _n_points = sum(_f["properties"].get("n_points", 0)
                     for _f in historical_tracks["features"])
+    _with_plot = sum(1 for _f in climatology_sites["features"]
+                     if _f["properties"].get("climatology_png"))
     print(f"Historical: {len(historical_tracks['features'])} deployment(s), "
           f"{_n_points} profile positions, "
-          f"{len(folger_sites['features'])} instrument site(s)")
-    return folger_sites, historical_tracks
+          f"{len(folger_sites['features'])} instrument site(s), "
+          f"{len(climatology_sites['features'])} climatology site(s) "
+          f"({_with_plot} with a plot)")
+    return climatology_layer_sites, climatology_sites, folger_sites, historical_tracks
 
 
 @app.cell(hide_code=True)
@@ -359,6 +423,7 @@ def map(
     RasterTileSource,
     ScaleControl,
     about_md,
+    climatology_layer_sites,
     construct_basemap_style,
     folger_sites,
     glider_records,
@@ -529,6 +594,25 @@ def map(
         },
     )
 
+    # --- Climatology sites: La Perouse Bank and the five Barkley Canyon moorings ---
+    # Historical view only, so the baked visibility is "none" and the colour is the
+    # historical one -- unlike the Folger pair, these never appear over the live view
+    # and so never need recolouring. Folger is deliberately not in this source: it has
+    # its own layer above, drawn in both views, and putting it here as well would
+    # double-plot it every time the historical view is on.
+    _clim_layer = Layer(
+        id="climatology-sites",
+        type=LayerType.CIRCLE,
+        source="climatology-sites",
+        paint={
+            "circle-radius": _hist_cfg["CLIM_SITE_RADIUS"],
+            "circle-color": _hist_cfg["SITE_COLOR_HISTORICAL"],
+            "circle-stroke-width": 1.6,
+            "circle-stroke-color": "#ffffff",
+        },
+        layout={"visibility": "none"},
+    )
+
     # All five source/layer pairs are baked directly into the initial style
     # (see earlier pass's long comment for why -- add_source/add_layer after
     # construction only fire once, ever, and don't survive reconnects). That
@@ -540,13 +624,14 @@ def map(
     # of both.
     _basemap_style = construct_basemap_style(
         layers=[_esri_layer, _sst_fill, _historical_layer, _glider_point_layer,
-                _folger_layer],
+                _clim_layer, _folger_layer],
         sources={
             "esri-ocean": _esri_source.to_dict(),
             "sst-src": GeoJSONSource(data=sst_layer).to_dict(),
             "glider-positions": GeoJSONSource(data=_glider_points_collection).to_dict(),
             "historical-points": GeoJSONSource(data=historical_tracks).to_dict(),
             "folger-sites": GeoJSONSource(data=folger_sites).to_dict(),
+            "climatology-sites": GeoJSONSource(data=climatology_layer_sites).to_dict(),
         },
         name="esri-ocean-basemap",
     )
@@ -616,7 +701,10 @@ def map(
     _epoch_start = historical_tracks.get("epoch_start", "")
     _months = historical_tracks.get("months") or [""]
     _ramp_css = ", ".join(_hist_cfg["RAMP"])
-    _site_names = " · ".join(_f["properties"]["name"] for _f in folger_sites["features"])
+    # The legend used to name the two Folger sites outright. With eight sites it names
+    # the groups instead -- the panel has to stay small enough to leave visible in both
+    # views, and the "i" popover carries the full list.
+    _site_count = len(folger_sites["features"]) + len(climatology_layer_sites["features"])
     _live_colour = CONFIG_MAP["GLIDER"]["LINE_COLOR"]
     _active_days = CONFIG_MAP["GLIDER"]["ACTIVE_DAYS"]
     _active_days_label = f"{_active_days:g} day" + ("" if _active_days == 1 else "s")
@@ -766,6 +854,14 @@ def map(
         margin: 5px 0 3px;
         background: linear-gradient(to right, {_ramp_css});
       }}
+      .glider-map-root .legend-credit {{
+        margin-top: 8px;
+        padding-top: 6px;
+        border-top: 1px solid rgba(255,255,255,0.18);
+        color: #aab3bb;
+        font-size: 10px;
+        line-height: 1.35;
+      }}
       .glider-map-root .legend-ends {{
         display: flex;
         justify-content: space-between;
@@ -827,7 +923,13 @@ def map(
         <div style="margin-top:7px"><b>Historical</b> — profile positions by deployment date</div>
         <div class="legend-ramp"></div>
         <div class="legend-ends"><span>{_months[0]}</span><span>{_months[-1]}</span></div>
-        <div style="margin-top:7px"><span class="legend-site"></span>{_site_names}</div>
+        <div style="margin-top:7px">
+          <span class="legend-site"></span>{_site_count} instrument sites — click one in Historical
+        </div>
+        <div class="legend-credit">
+          Data: Ocean Networks Canada · C-PROOF · DFO/MEDS · NOAA CoastWatch —
+          citations and access points under <b>i</b>
+        </div>
       </div>
       <div class="sst-legend">
         <b>Sea surface temperature</b>
@@ -878,6 +980,7 @@ def historical_toggle_visibility(CONFIG_MAP, map_widget, view_toggle):
     _historical = view_toggle.value == "Historical"
 
     map_widget.set_visibility("historical-points", _historical)
+    map_widget.set_visibility("climatology-sites", _historical)
     map_widget.set_visibility("glider-positions", not _historical)
     map_widget.set_paint_property(
         "folger-sites", "circle-color",
@@ -890,23 +993,23 @@ def historical_toggle_visibility(CONFIG_MAP, map_widget, view_toggle):
 
 
 @app.cell(hide_code=True)
-def click_plot(glider_records, historical_view, map_ui, set_plot_closed):
+def click_plot(climatology_sites, glider_records, historical_view, map_ui,
+               set_plot_closed):
     _clicked = (map_ui.value or {}).get("clicked") or {}
     _click_lon, _click_lat = _clicked.get("lng"), _clicked.get("lat")
     _TOLERANCE_DEG = 0.05  # generous proximity radius for hit-testing a click against a track
+    _SITE_TOLERANCE_DEG = 0.03  # tighter, for point sites -- see the nearest-wins note below
 
     def _near(lon, lat, lon2, lat2, tol=_TOLERANCE_DEG):
         return lon is not None and abs(lon - lon2) < tol and abs(lat - lat2) < tol
 
-    # Historical is a look-only view for now: clicking a track opens nothing. The
-    # click-through plots are another team member's work, so leave the selection empty
-    # rather than half-wiring a panel they will replace. Guarding the hit-test rather
-    # than returning early keeps this cell's single return statement intact, which is
-    # what marimo reads to know the cell defines `selected_glider_record`.
-    #
-    # This also clears any live-view selection on the way in, so switching views never
-    # strands an orange highlight under a layer that is no longer visible.
+    # Each view answers a click with its own kind of thing, and never both: a glider
+    # deployment over the live view, a fixed site's climatology over the historical
+    # one. Whichever view is off contributes None, which also means switching views
+    # clears the panel rather than stranding a selection under a hidden layer.
     selected_glider_record = None
+    selected_site = None
+
     if not historical_view:
         for _rec in glider_records:
             if any(_near(_click_lon, _click_lat, lon2, lat2)
@@ -914,6 +1017,22 @@ def click_plot(glider_records, historical_view, map_ui, set_plot_closed):
                 selected_glider_record = _rec
                 break  # first deployment within tolerance wins -- same precision as today's
                        # single-glider hit-test, generalized from 1 candidate to N
+    elif _click_lon is not None:
+        # NEAREST within tolerance, not first within tolerance -- unlike the glider
+        # hit-test above, which can afford first-wins because two deployments rarely
+        # overlap. These sites genuinely do overlap: Hydrates, Mid-East and Axis sit
+        # within 0.016 deg of each other on the canyon floor, and Folger Deep and
+        # Pinnacle within 0.006 deg. First-wins would make three of the five canyon
+        # sites unreachable by clicking. The tolerance is tighter than the glider one
+        # for the same reason.
+        _hits = [
+            (max(abs(_click_lon - _f["geometry"]["coordinates"][0]),
+                 abs(_click_lat - _f["geometry"]["coordinates"][1])), _f)
+            for _f in climatology_sites["features"]
+        ]
+        _hits = [(_d, _f) for _d, _f in _hits if _d < _SITE_TOLERANCE_DEG]
+        if _hits:
+            selected_site = min(_hits, key=lambda pair: pair[0])[1]["properties"]
 
     # Reset the close flag on every new valid selection so clicking a
     # (possibly different) marker/track point always reopens the panel, even
@@ -925,9 +1044,66 @@ def click_plot(glider_records, historical_view, map_ui, set_plot_closed):
     # defining cell is exempt from re-running on its own value changes -- if
     # this cell both defined the slider and read its value, dragging it would
     # silently do nothing after the first click. This cell now only hit-tests.
-    if selected_glider_record is not None:
+    if selected_glider_record is not None or selected_site is not None:
         set_plot_closed(False)
-    return (selected_glider_record,)
+    return selected_glider_record, selected_site
+
+
+@app.cell(hide_code=True)
+def site_panel(mo, selected_site):
+    # The climatology plot for a clicked site, as a data URI.
+    #
+    # Base64 rather than a file path or an <img src> pointing at the repo: the app is
+    # served by marimo, which does not serve arbitrary repo files over HTTP, so a path
+    # that works on disk would 404 in the browser. Embedding the bytes sidesteps the
+    # question entirely. It is only done for the ONE site that was clicked -- all eight
+    # at once would be ~1.6 MB of PNG on every page.
+    #
+    # A missing file degrades to a note, not a broken image: the plots live in
+    # contributor_folders/Dwight/climatology/ and are rebuilt by that folder's own
+    # script, so a checkout can legitimately be missing one.
+    import base64
+    from pathlib import Path as _Path
+
+    if selected_site is None:
+        site_plot = None
+    else:
+        _repo = _Path(__file__).resolve().parent.parent
+        _png = selected_site.get("climatology_png")
+        _path = (_repo / _png) if _png else None
+
+        _depth = selected_site.get("depth_m")
+        _where = f"{_depth:.0f} m" if _depth else "sea surface"
+        _span = ""
+        if selected_site.get("record_start") and selected_site.get("record_end"):
+            _span = f" · {selected_site['record_start'][:4]}–{selected_site['record_end'][:4]}"
+
+        _header = mo.md(f"### {selected_site['name']}\n{_where}{_span}")
+
+        if _path is not None and _path.exists():
+            _uri = "data:image/png;base64," + base64.b64encode(_path.read_bytes()).decode()
+            _body = mo.Html(
+                f'<img src="{_uri}" alt="Day-of-year temperature climatology for '
+                f'{selected_site["name"]}" style="width:100%;height:auto;'
+                'border-radius:6px;background:#fff" />'
+            )
+        else:
+            _body = mo.md(
+                "_No climatology plot for this site yet._ Build one with "
+                "`python contributor_folders/Dwight/onc_climatology.py --all "
+                "--outdir climatology/`."
+            )
+
+        # Day-of-year climatology, not a live reading -- worth saying on the panel
+        # itself, since the rest of this app is about what is happening now.
+        _note = mo.md(
+            "Day-of-year mean with 1 and 2 sd bands, pooled over ±7 days across all "
+            "years of the record, with the current year overlaid. Built by "
+            "`onc_climatology.py`; see `contributor_folders/Dwight/CLIMATOLOGY.md` "
+            "for the screening and its caveats."
+        )
+        site_plot = mo.vstack([_header, _body, _note])
+    return (site_plot,)
 
 
 @app.cell(hide_code=True)
@@ -976,6 +1152,7 @@ def plot_overlay(
     mo,
     selection_plot,
     set_plot_closed,
+    site_plot,
     time_range_label,
 ):
     # ALTERNATIVE ARCHITECTURE (fifteenth pass): use marimo's own native
@@ -990,7 +1167,7 @@ def plot_overlay(
     # more than one `mo.sidebar` - they will be displayed in the order they
     # are called," and it "still needs to be the last expression in the cell."
     _closed = get_plot_closed()
-    _visible = selection_plot is not None and not _closed
+    _visible = (selection_plot is not None or site_plot is not None) and not _closed
 
     if _visible:
         # Close button: `on_change` (not `on_click`) calls `set_plot_closed`.
@@ -1015,12 +1192,23 @@ def plot_overlay(
         # glider_decimation_slider sits directly ABOVE glider_time_slider (point
         # density above time window), both below the plot, with time_range_label
         # last since it reports on where glider_time_slider is currently set.
-        _content = mo.vstack([
-            _close_button, selection_plot,
-            glider_decimation_slider, glider_time_slider, time_range_label,
-        ])
+        #
+        # The site panel carries no sliders: they scope a glider deployment's own time
+        # axis, and a day-of-year climatology has neither a live window nor a point
+        # density to thin. `click_plot` guarantees only one of the two is ever set.
+        if site_plot is not None:
+            _content = mo.vstack([_close_button, site_plot])
+        else:
+            _content = mo.vstack([
+                _close_button, selection_plot,
+                glider_decimation_slider, glider_time_slider, time_range_label,
+            ])
     else:
-        _content = mo.md("_Click a glider track to see a plot here._")
+        _content = mo.md(
+            "_Click a glider track to see a plot here._\n\n"
+            "_In the historical view, click an instrument site for its temperature "
+            "climatology._"
+        )
 
     mo.sidebar(_content, width="480px")
     return

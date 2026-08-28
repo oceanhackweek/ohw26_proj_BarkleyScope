@@ -357,6 +357,47 @@ marker — at low zoom they overplot. Note that `data/sst/compare_panels.py` lab
 (48.814, −125.281) as "Folger Pinnacle", but per ONC that coordinate is Folger *Deep*;
 do not copy it from there.
 
+## Climatology sites — `climatology_sites.geojson`
+
+The eight moorings and buoys that have a day-of-year temperature climatology, as Points,
+written by `build_climatology_sites.py`. The app draws them in its historical view and
+opens a site's climatology plot when it is clicked.
+
+```bash
+python data/build_climatology_sites.py            # after any onc_climatology.py --all run
+python data/build_climatology_sites.py --dry-run  # report, write nothing
+```
+
+| key | station | depth | record |
+|---|---|---|---|
+| `pinnacle` | Folger Pinnacle | 25 m | 2011-02-03 → 2026-08-11 |
+| `deep` | Folger Deep | 98 m | 2016-01-01 → 2026-07-18 |
+| `upperslope` | Barkley Upper Slope | 398 m | 2009-08-01 → 2026-08-26 |
+| `node` | Barkley Node | 643 m | 2018-06-22 → 2026-08-26 |
+| `hydrates` | Barkley Canyon Hydrates | 871 m | 2013-05-16 → 2026-08-26 |
+| `mideast` | Barkley Canyon Mid-East | 900 m | 2009-09-15 → 2026-07-28 |
+| `axis` | Barkley Canyon Axis | 983 m | 2010-05-18 → 2026-08-26 |
+| `laperusebank` | La Perouse Bank (C46206) | sea surface | 1988-11-22 → 2022-04-17 |
+
+**The key → file mapping is not defined here.** It is imported from
+`contributor_folders/Dwight/onc_climatology.py`'s own `discover_sites()`, so this
+precompute reads exactly the record each climatology was built from. That matters more
+than it looks: for Folger Deep the folder holds two different records, and
+`folgerDeepDataSet.nc` (2009-2015) is not the one the climatology uses (the CSV,
+2016-2026). The site key is also the PNG's filename stem, so a rename cannot silently
+point a site at another site's plot.
+
+Positions come from each record's own metadata — `station_lat`/`station_lon` global
+attributes in the ONC netCDFs, `#LATITUDE`/`#LONGITUDE` header lines in the ONC CSVs, the
+median of the `LATITUDE`/`LONGITUDE` columns for the MEDS buoy. The Folger pair agrees
+with `folger_sites.geojson` to six decimals, which is the check that the two scripts read
+the same thing. One trap, handled: the buoy file writes longitude positive (`126.0`)
+meaning degrees *west*; taken at face value it puts La Perouse Bank in Kazakhstan.
+
+Note the two depth fields. `depth_m` is instrument depth; for the surface buoy it is null
+and `water_depth_m` (72 m) carries the sounding instead, because those are different
+quantities and collapsing them would report the buoy as measuring at 72 m.
+
 ## Files
 
 | File | Purpose |
@@ -365,6 +406,7 @@ do not copy it from there.
 | `cproof_https.py` | Live view straight from the C-PROOF server — what is in the box now |
 | `fetch_grid_adjusted.py` | Bulk download of the gridded `_grid_adjusted.nc` mission set |
 | `build_historical_tracks.py` | Turns that set into committable map tracks + the Folger sites |
+| `build_climatology_sites.py` | Map layer for the eight sites with a day-of-year climatology |
 | `upload_glider_adjusted.sh` | Mirrors that set to the GitHub release, one deployment at a time |
 | `watch_glider_transects.py` | Nightly check for new transects in the box; writes the manifest |
 | `update_cproof_glider.py` | CLI entry point for the scheduled job |
