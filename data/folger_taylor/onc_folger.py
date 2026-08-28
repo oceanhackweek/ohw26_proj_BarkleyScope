@@ -85,6 +85,94 @@ def gap_table(df: pd.DataFrame, column: str = "temperature_C", min_days: float =
     return out.sort_values("days", ascending=False).reset_index(drop=True)
 
 
+def _section(title: str) -> None:
+    print(f"\n{title}\n" + "-" * len(title))
+
+
+def inspect(path: str | Path, column: str = "temperature_C",
+            min_days: float = 7.0, max_steps: int = 8) -> pd.DataFrame:
+    """Load one ONC export, print a first-look report, and return the frame.
+
+    Run this before any analysis. The checks are the ones that actually caught
+    problems in the Folger records, so they are automated rather than remembered:
+    the declared-count cross-check catches a broken parse, and the duplicate-stamp
+    check catches an index that would silently corrupt a later join.
+
+    Preamble parsing is specific to ONC's CSV export; a different provider needs
+    its own reader, though everything downstream of :func:`read_csv` still applies.
+    """
+    meta = read_header(path)
+    df = read_csv(path)
+    n_valid = int(df[column].notna().sum())
+    n_nan = len(df) - n_valid
+
+    _section("STATION")
+    for key, label in [("STNNAME", "station"), ("STNCODE", "code"),
+                       ("LATITUDE", "latitude"), ("LONGITUDE", "longitude"),
+                       ("DEPTH", "depth (m)"), ("DEVCAT", "device"),
+                       ("DEVTOT", "deployments"), ("RESAMPPRD", "resample (s)"),
+                       ("RESAMPTYP", "resample type"), ("DPOPTQC", "QC option")]:
+        if meta.get(key):
+            print(f"  {label:<14} {meta[key]}")
+
+    _section("COLUMNS")
+    print(df.dtypes.to_string())
+    print()
+    print(df.head(3).to_string())
+    print("\n  QC flags present:")
+    for flag, n in df["qc_flag"].value_counts().sort_index().items():
+        print(f"    {int(flag)} = {QC_FLAGS.get(int(flag), '?'):<20}"
+              f"{n:>9,}  ({n / len(df) * 100:5.1f}%)")
+
+    _section("TIME RANGE")
+    span = df.index[-1] - df.index[0]
+    print(f"  first timestamp  {df.index[0]}")
+    print(f"  last  timestamp  {df.index[-1]}")
+    print(f"  span             {span.days:,} days ({span.days / 365.25:.1f} yr)")
+    valid_idx = df.index[df[column].notna()]
+    if len(valid_idx):
+        print(f"  first valid      {valid_idx[0]}")
+        print(f"  last  valid      {valid_idx[-1]}")
+    else:
+        print("  first/last valid (no valid values in file)")
+
+    _section("INTEGRITY")
+    print(f"  rows in file     {len(df):>9,}   preamble TOTSMPEXP {meta.get('TOTSMPEXP', '?'):>8}")
+    print(f"  valid values     {n_valid:>9,}   preamble TOTSAMPLE {meta.get('TOTSAMPLE', '?'):>8}")
+    print(f"  NaN              {n_nan:>9,}   ({n_nan / len(df) * 100:.1f}%)")
+    dups = int(df.index.duplicated().sum())
+    print(f"  duplicate stamps {dups:>9,}" + ("   <-- will corrupt joins" if dups else ""))
+    for t in df.index[df.index.duplicated(keep=False)].unique():
+        print(f"        {t}")
+    print(f"  monotonic        {str(df.index.is_monotonic_increasing):>9}")
+
+    _section("SAMPLING REGULARITY")
+    print("  spacing of all timestamps:")
+    print(sampling_regularity(df).to_string())
+    print("\n  spacing between valid values only:")
+    reg = sampling_regularity(df[df[column].notna()])
+    print(reg.head(max_steps).to_string())
+    if len(reg) > max_steps:
+        print(f"  ... {len(reg)} distinct steps in total, largest {reg.index.max()}")
+
+    _section(f"GAPS LONGER THAN {min_days:g} DAYS")
+    gaps = gap_table(df, column=column, min_days=min_days)
+    if gaps.empty:
+        print("  (none)")
+    else:
+        show = gaps.assign(
+            gap_start=gaps["gap_start"].dt.strftime("%Y-%m-%d %H:%M"),
+            gap_end=gaps["gap_end"].dt.strftime("%Y-%m-%d %H:%M"),
+            days=gaps["days"].round(1),
+        )
+        print(show.to_string(index=False))
+        lost = int(gaps["missing_hours"].sum())
+        pct = f" = {lost / n_nan * 100:.1f}% of all {n_nan:,} missing hours" if n_nan else ""
+        print(f"\n  {lost:,} h lost in these gaps{pct}")
+    print()
+    return df
+
+
 def to_daily(df: pd.DataFrame, column: str = "temperature_C", min_hours: int = 18) -> pd.DataFrame:
     """Hourly -> daily mean, requiring ``min_hours`` valid hours in the day.
 
@@ -307,6 +395,117 @@ def plot_comparison(anom_a, anom_b, label_a: str, label_b: str, title: str = "",
     fig.suptitle(title, color=_INK, fontsize=12.5, x=0.011, y=0.985, ha="left")
     fig.text(0.011, 0.952, baseline, color=_MUTED, fontsize=9.5, ha="left")
     fig.subplots_adjust(top=0.90, hspace=0.16)
+    if path:
+        fig.savefig(path, dpi=dpi, facecolor=_SURFACE, bbox_inches="tight")
+    return fig, axes, out
+
+
+# Two-line series palette: categorical slots 1 and 2. Validated on the light
+# surface -- CVD dE 24.7, normal-vision dE 33.6, both clear 3:1 contrast.
+_SERIES = ("#2a78d6", "#eb6834", "#1baf7a", "#eda100")
+
+
+def _draw_daily(ax, series: dict) -> list:
+    """Daily lines for one or more stations on an existing axis; returns span labels.
+
+    Gaps stay NaN so the line breaks rather than interpolating across an outage --
+    with records of unequal coverage a continuous line would invent data.
+    """
+    ax.set_facecolor(_SURFACE)
+    spans = []
+    for (label, daily), colour in zip(series.items(), _SERIES):
+        v = daily["temperature_C"].astype(float)
+        ax.plot(daily.index, v, lw=0.7, color=colour, label=label, zorder=3)
+        ok = v.dropna()
+        spans.append(f"{label}: {ok.index[0]:%Y-%m} – {ok.index[-1]:%Y-%m} "
+                     f"({len(ok):,} days)")
+    ax.grid(axis="y", color="#e1e0d9", lw=0.8, zorder=0)
+    return spans
+
+
+def _series_xlim(series: dict):
+    """Widest span across all stations, padded -- the shared time axis."""
+    lo = min(d.index[0] for d in series.values())
+    hi = max(d.index[-1] for d in series.values())
+    return lo - pd.Timedelta(days=60), hi + pd.Timedelta(days=60)
+
+
+def plot_daily_series(series: dict, title: str = "", subtitle: str = "",
+                      ylabel: str = "temperature (°C)", path=None, dpi: int = 200):
+    """Daily means for one or more stations on a single shared axis.
+
+    Gaps are left as NaN so the line breaks rather than interpolating across an
+    outage -- with records of unequal coverage, a continuous line would invent data.
+    One y-axis always: every series is the same quantity in the same units.
+    """
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(15, 5), facecolor=_SURFACE)
+    spans = _draw_daily(ax, series)
+
+    ax.set_ylabel(ylabel, color=_MUTED, fontsize=9)
+    _time_axis(ax, next(iter(series.values())))
+    ax.set_xlim(*_series_xlim(series))
+
+    ax.set_title(title, color=_INK, fontsize=12.5, loc="left", pad=22)
+    ax.text(0, 1.035, subtitle or "   ·   ".join(spans), transform=ax.transAxes,
+            color=_MUTED, fontsize=9.5)
+    ax.legend(frameon=False, fontsize=9.5, labelcolor=_MUTED,
+              loc="upper right", ncol=len(series))
+
+    fig.tight_layout()
+    if path:
+        fig.savefig(path, dpi=dpi, facecolor=_SURFACE, bbox_inches="tight")
+    return fig, ax
+
+
+def plot_combined(series: dict, panels: list, title: str = "", subtitle: str = "",
+                  percentiles=(90, 95, 99), path=None, dpi: int = 200):
+    """Daily means above one anomaly panel per station, on a single shared time axis.
+
+    ``panels`` is [(label, anom_frame), ...] top-to-bottom beneath the daily panel.
+    The anomaly panels share a symmetric y-scale so their amplitudes are directly
+    comparable, and the whole figure shares one x-axis so an event in the daily
+    record can be read straight down into both anomaly series.
+
+    The daily panel spans each station's full record while the anomaly panels may be
+    narrower (a common baseline covers only the overlap) -- that mismatch is left
+    visible rather than papered over by cropping the daily data.
+    """
+    import matplotlib.pyplot as plt
+
+    n = 1 + len(panels)
+    fig, axes = plt.subplots(n, 1, figsize=(15, 4.4 * n), sharex=True, facecolor=_SURFACE,
+                             gridspec_kw={"height_ratios": [1.2] + [1] * len(panels)})
+
+    spans = _draw_daily(axes[0], series)
+    axes[0].set_ylabel("temperature (°C)", color=_MUTED, fontsize=9)
+    axes[0].legend(frameon=False, fontsize=9, labelcolor=_MUTED,
+                   loc="upper right", ncol=len(series))
+
+    v = pd.concat([a["anom_C"] for _, a in panels]).dropna()
+    lim = float(max(abs(v.min()), abs(v.max()))) * 1.15   # one scale for every anomaly panel
+
+    out = []
+    for ax, (label, anom) in zip(axes[1:], panels):
+        out.append(_draw_anomaly(ax, anom, percentiles, ylim=lim))
+        ax.set_ylabel("anomaly (°C)", color=_MUTED, fontsize=9)
+        ax.text(0.002, 0.97, label, transform=ax.transAxes, color=_INK, fontsize=10.5,
+                va="top", ha="left", zorder=7,
+                bbox=dict(facecolor=_SURFACE, edgecolor="none", pad=2.5))
+
+    for ax in axes:
+        _time_axis(ax, next(iter(series.values())))
+    axes[0].set_xlim(*_series_xlim(series))          # sharex propagates to the rest
+    for ax in axes[:-1]:
+        ax.tick_params(axis="x", labelbottom=False)
+
+    # Both anchored va="top": mixing suptitle's default with fig.text's baseline
+    # puts them on the same line.
+    fig.suptitle(title, color=_INK, fontsize=13, x=0.011, y=0.998, ha="left", va="top")
+    fig.text(0.011, 0.9765, subtitle or "   ·   ".join(spans),
+             color=_MUTED, fontsize=9.5, ha="left", va="top")
+    fig.subplots_adjust(top=0.955, hspace=0.13)
     if path:
         fig.savefig(path, dpi=dpi, facecolor=_SURFACE, bbox_inches="tight")
     return fig, axes, out

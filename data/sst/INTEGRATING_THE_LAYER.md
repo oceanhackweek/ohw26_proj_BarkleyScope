@@ -1,11 +1,16 @@
 # Adding the satellite SST layer to the map app
 
-For whoever owns the app. You need **one file** and about fifteen lines. You do not need
+For whoever owns the app. You need **two files** and about twenty lines. You do not need
 anything else from `data/sst/` — no xarray, no netCDF reader, no import from this folder.
 
 ```
-data/sst_barkley_layer.geojson
+data/sst_barkley_layer.geojson     the temperature cells      2.1 MB
+data/sst_barkley_points.geojson    one clickable marker        23 kB
 ```
+
+The cells are the main event and come first. **The point layer is optional** — the map
+works fine without it — so if you only want the temperature field, stop after "Captioning"
+and ignore the last section.
 
 Everything below is about that file. If something here disagrees with the file, trust the
 file — it carries its own metadata.
@@ -196,6 +201,69 @@ https://raw.githubusercontent.com/oceanhackweek/ohw26_proj_BarkleyScope/main/dat
   loud.
 
 ---
+
+## The clickable point — `sst_barkley_points.geojson`
+
+Optional, and independent of everything above. One Point feature at **Folger Passage**,
+carrying its own history. 23 kB.
+
+### Draw the marker
+
+```python
+points = json.loads(Path("data/sst_barkley_points.geojson").read_text())
+
+points_source = GeoJSONSource(data=points).to_dict()
+
+points_layer = Layer(
+    id="sst-points",
+    type=LayerType.CIRCLE,
+    source="points-src",
+    paint={"circle-radius": 6, "circle-color": "#ffffff",
+           "circle-stroke-width": 2, "circle-stroke-color": "#0b1a2b"},
+)
+```
+
+Add it **after** the SST fill in the layer list, or the fill will cover it.
+
+### What the popup shows
+
+The feature's properties hold two ready-made series. Nothing needs recomputing:
+
+| Field | Feeds | Shape |
+|---|---|---|
+| `daily` | **Plot A**, raw SST | `[{date, sst_C}, ...]` — ~373 points |
+| `monthly` | **Plot B**, anomalies | `[{month, mean_C, n, ok, clim_C, anom_C, partial}, ...]` |
+| `climatology` | Plot B's baseline | `[{calendar_month, clim_C, std_C, n_years}, ...]` |
+| `anomaly_thresholds` | Plot B's dashed rules | `{"90": …, "95": …, "99": …}` — recomputed each refresh, so read them rather than hardcoding |
+
+Two stacked panels sharing an x-axis: raw SST on top, `anom_C` as bars below. A worked
+example is `preview_points.py` in this folder — it draws exactly these two panels from
+exactly these fields, so read it rather than reverse-engineering the file.
+
+### Four things to say on the figure
+
+These are in the collection's `properties` as ready-made sentences. They matter more than
+usual here, because a time series invites conclusions a single map does not:
+
+- **`cell_caveat`** — one 5 km cell covers *both* Folger stations, which are 611 m apart.
+  The marker sits at the cell centre, on neither instrument.
+- **`depth_caveat`** — this is skin temperature. The stations sit at 23 m and ~96 m. It is
+  **not** a proxy for what they record.
+- **`baseline_caveat`** — the climatology spans 6–8 years, not the 30 a standard baseline
+  assumes. Anomalies are indicative of this record, not of the climate.
+- **`sampling`** — older months rest on ~4 weekly samples, recent ones on ~30 daily.
+  Unbiased either way, but less precise; each month's `n` says which it is.
+
+### Gotchas specific to the point layer
+
+- **`partial: true`** marks the current, incomplete month. It creeps upward all month.
+  Render it distinctly — hatched, faded, whatever — or a half-month reads as a finished one.
+- **`mean_C`, `clim_C`, `anom_C` can be `null`** where a month lacked coverage. `ok` tells
+  you; do not assume a number is there.
+- **`daily` is deliberately sub-sampled** — weekly through the record, daily for the last
+  7 days. That is not a bug, and it is why the recent end looks denser.
+- **The series is not continuous with the cells layer.** The point covers 2019 → now; the
+  cell layer covers the last 7 days. They answer different questions.
 
 ## If something looks wrong
 

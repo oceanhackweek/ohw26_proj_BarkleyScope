@@ -5,10 +5,12 @@
 #   barkley_sst_map.html    <- preview_map.py
 #   preview_week*.png       <- preview_panels.py
 #   compare_resolutions.png <- compare_panels.py
+#   preview_points.png      <- preview_points.py
 barkley_sst_map.html
 preview_week.png
 preview_week_sound.png
 compare_resolutions.png
+preview_points.png
 
 # NOT ignored, deliberately:
 #   land_mask_1km.nc   needed at render time by cell_polygons(clip=True)

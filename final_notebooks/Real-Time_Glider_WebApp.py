@@ -18,7 +18,7 @@ __generated_with = "0.24.0"
 app = marimo.App(width="full")
 
 
-@app.cell
+@app.cell(hide_code=True)
 def nb_imports():
     import marimo as mo
     import pandas as pd
@@ -71,7 +71,7 @@ def nb_imports():
     )
 
 
-@app.cell
+@app.cell(hide_code=True)
 def config():
     CONFIG_MAP = {
         "REGION": {"lon_range": (-126.8, -124.5), "lat_range": (47.85, 49.36)},  # Barkley Sound, BC
@@ -151,8 +151,8 @@ def config():
 
 
 @app.cell(hide_code=True)
-def about_note(mo):
-    about_md = mo.md(r"""
+def about_note(mo, sst_meta):
+    about_md = mo.md(f"""
     **About this app:** marimo + MapLibre rebuild of `Glider_Map_App.ipynb` (which used ipyleaflet +
     Voila; see `VOILA_TROUBLESHOOTING.md` for why that path was painful).
 
@@ -189,6 +189,14 @@ def about_note(mo):
       Folger Passage, shown in *both* views as fixed reference points. They sit ~650 m apart and
       overplot until you zoom in.
 
+    - **Sea surface temperature** -- satellite SST, one fill layer for every date available at once,
+      switched by the "SST date" control (top left). {sst_meta["source_caveat"]} The colour scale is
+      fixed at {sst_meta["color_range"][0]:.0f}-{sst_meta["color_range"][1]:.0f}°C year-round,
+      deliberately not autoscaled per day, so unchanged water doesn't appear to change temperature as
+      you switch dates. Faint cells in the far corner are real water the satellite can see but this
+      study box isn't about -- muted, not hidden. See `data/sst/INTEGRATING_THE_LAYER.md` for the full
+      pipeline.
+
     **Data shape:** `load_active_gliders()` standardizes every deployment to `Longitude`, `Latitude`,
     `Depth`, `<variable>` -- the same schema `glider_lib.load_platform_data()` produces for a plain
     CSV/NetCDF file, so any future platform wired in through that loader works with the map/click-plot
@@ -197,7 +205,7 @@ def about_note(mo):
     return (about_md,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def glider_data(CONFIG_MAP, load_active_gliders):
     _glider_cfg = CONFIG_MAP["GLIDER"]
     glider_var = _glider_cfg["VARIABLE"]
@@ -256,6 +264,57 @@ def historical_data(CONFIG_MAP):
 
 
 @app.cell(hide_code=True)
+def sst_data():
+    # Loaded once from the SST pipeline's own export -- see
+    # data/sst/INTEGRATING_THE_LAYER.md. cwd at kernel start is NOT this
+    # notebook's own directory (confirmed: the hub launches marimo from
+    # /home/jovyan), so a plain relative "data/..." path would resolve wrong --
+    # anchor to this file's own location instead, same pattern glider_lib.py
+    # already uses for the same reason.
+    import json
+    from pathlib import Path
+
+    _sst_path = Path(__file__).resolve().parent.parent / "data" / "sst_barkley_layer.geojson"
+    sst_layer = json.loads(_sst_path.read_text())
+    sst_meta = sst_layer["properties"]
+    return sst_layer, sst_meta
+
+
+@app.cell(hide_code=True)
+def sst_date_control(mo, sst_meta):
+    # Real mo.sidebar, not a hand-rolled floating div -- the same proven layout
+    # primitive `plot_overlay` already uses for the curtain-plot panel (adopted
+    # there specifically because hand-rolled position:fixed divs kept causing
+    # hard-to-pin-down rendering/overlap bugs). mo.sidebar has no per-call
+    # side/position option (its own source disables .left()/.right()/.center()/
+    # .style()), so this stacks in the SAME left dock as the plot sidebar, "in
+    # the order [mo.sidebar calls are] called" per its docstring -- not a fully
+    # independent screen region, but a real, reliable one rather than guessed
+    # pixel offsets.
+    #
+    # Defined AND displayed in this same cell -- this is sst_date_picker's only
+    # defining cell, so it is exempt from re-running on its own value changes
+    # (same rule that lets map_ui live inside `map`). It must NEVER be
+    # referenced inside `map`'s cell body, even just for display: marimo
+    # reruns any cell that references a changed UI element by name, at
+    # whole-cell granularity -- that would force `map` to rebuild the widget
+    # on every date change, exactly what `map`'s own comments warn against.
+    #
+    # The legend lives in `map`'s own floating overlay instead of here -- it's
+    # static (sst_meta never changes), so baking it into map's one-time HTML
+    # keeps it in the same DOM insertion as the map, and it looked better
+    # bottom-right on the map itself than duplicated in this panel too.
+    sst_date_picker = mo.ui.dropdown(
+        options=sst_meta["dates"],
+        value=sst_meta["default_date"],
+        label="SST date",
+    )
+
+    mo.sidebar(mo.vstack([mo.md("**Sea Surface Temperature**"), sst_date_picker]))
+    return (sst_date_picker,)
+
+
+@app.cell(hide_code=True)
 def map(
     CONFIG_MAP,
     GeoJSONSource,
@@ -272,6 +331,8 @@ def map(
     glider_records,
     historical_tracks,
     mo,
+    sst_layer,
+    sst_meta,
 ):
     _lon_lo, _lon_hi = CONFIG_MAP["REGION"]["lon_range"]
     _lat_lo, _lat_hi = CONFIG_MAP["REGION"]["lat_range"]
@@ -282,6 +343,26 @@ def map(
     )
     _esri_source = RasterTileSource(tiles=[ESRI_OCEAN_TILES], tile_size=256, min_zoom=0, max_zoom=16)
     _esri_layer = Layer(id="esri-ocean-basemap", type=LayerType.RASTER, source="esri-ocean")
+
+    # --- Satellite SST fill layer -- see data/sst/INTEGRATING_THE_LAYER.md. One source
+    # carries every available day at once (filtered by `date` in the sst_date_filter cell,
+    # not by swapping sources); baked in here, before the glider layers, since it is an
+    # opaque-ish fill and would bury anything drawn under it. Static at construction time --
+    # only sst_meta["default_date"] is read here, never sst_date_picker.value, for the same
+    # reason glider_highlight exists as a separate cell: referencing a live-changing UI
+    # element inside `map`'s body would make `map` re-run on every date change.
+    _sst_fill = Layer(
+        id="sst",
+        type=LayerType.FILL,
+        source="sst-src",
+        filter=["==", ["get", "date"], sst_meta["default_date"]],
+        paint={
+            "fill-color": sst_meta["maplibre_fill_color"],
+            # Flagged cells are real water (Strait of Georgia, behind Vancouver Island) just
+            # not water this study box's story is about -- faded, not hidden.
+            "fill-opacity": ["case", ["get", "flagged"], 0.16, 0.72],
+        },
+    )
 
     # --- Glider track source/layer: ONE GeoJSONSource, a FeatureCollection with
     # one LineString feature per CONTIGUOUS segment of each active deployment.
@@ -442,10 +523,11 @@ def map(
     # switching to historical never buries a live glider, and Folger sits on top of
     # both.
     _basemap_style = construct_basemap_style(
-        layers=[_esri_layer, _historical_layer, _glider_layer,
+        layers=[_esri_layer, _sst_fill, _historical_layer, _glider_layer,
                 _glider_point_layer, _folger_layer],
         sources={
             "esri-ocean": _esri_source.to_dict(),
+            "sst-src": GeoJSONSource(data=sst_layer).to_dict(),
             "glider-track": GeoJSONSource(data=_glider_collection).to_dict(),
             "glider-points": GeoJSONSource(data=_glider_points_collection).to_dict(),
             "historical-points": GeoJSONSource(data=historical_tracks).to_dict(),
@@ -488,6 +570,15 @@ def map(
     # depends on `clicked` or `selection_plot`, so this cell runs exactly
     # once, ever. That's what keeps the map (and now the plot panel's
     # *positioning*, see below) stable across clicks.
+    # Legend swatches: one flex-segment per color_stops entry -- baked in here (not a
+    # separate cell) because sst_meta never changes after load, so referencing it again
+    # here carries zero extra re-run risk, and keeps the legend in the SAME one-time DOM
+    # insertion as the map itself rather than a second mo.Html competing for render order.
+    _sst_swatches = "".join(
+        f'<span style="flex:1;height:12px;background:{_hex}"></span>'
+        for _, _hex in sst_meta["color_stops"]
+    )
+
     map_ui = mo.ui.anywidget(map_widget)
 
     # The view switch. Defined HERE, in the cell it is displayed in, on purpose: a UI
@@ -673,6 +764,29 @@ def map(
         vertical-align: -1px;
         margin-right: 5px;
       }}
+      /* Bottom-right -- the one corner nothing else claims: .app-title is
+         top-left, .about-toggle is right-CENTER (deliberately, to clear
+         marimo's own top-right/bottom chrome), the plot sidebar docks left.
+         pointer-events: none, matching .app-title -- purely informational,
+         never meant to intercept clicks meant for the map underneath. */
+      .glider-map-root .sst-legend {{
+        position: absolute;
+        bottom: 28px;
+        right: 16px;
+        z-index: 2;
+        width: 240px;
+        background: rgba(10, 20, 30, 0.78);
+        color: #eaeaea;
+        padding: 10px 12px;
+        border-radius: 10px;
+        font: 12px/1.4 system-ui, sans-serif;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.35);
+        pointer-events: none;
+      }}
+      .glider-map-root .sst-legend .ramp {{
+        display: flex;
+        margin: 6px 0 3px;
+      }}
     </style>
     <div class="glider-map-root">
       <div class="map-layer">{map_ui}</div>
@@ -684,6 +798,17 @@ def map(
         <div class="legend-ends"><span>{_months[0]}</span><span>{_months[-1]}</span></div>
         <div style="margin-top:7px"><span class="legend-site"></span>{_site_names}</div>
       </div>
+      <div class="sst-legend">
+        <b>Sea surface temperature</b>
+        <div class="ramp">{_sst_swatches}</div>
+        <div style="display:flex;justify-content:space-between">
+          <span>{sst_meta['color_range'][0]:.0f} &deg;C</span><span>{sst_meta['color_range'][1]:.0f} &deg;C</span>
+        </div>
+        <div style="margin-top:6px;opacity:0.75">
+          Fixed scale -- a colour means the same temperature on every date.
+          Faded cells are water unreachable from the open Pacific.
+        </div>
+      </div>
       <details class="about-toggle">
         <summary>i</summary>
         <div class="about-body">{about_md}</div>
@@ -693,7 +818,7 @@ def map(
     return glider_highlight_expr, map_ui, map_widget, view_toggle
 
 
-@app.cell
+@app.cell(hide_code=True)
 def historical_toggle_visibility(map_widget, view_toggle):
     # Switch the view by flipping layer visibility, never by rebuilding the map.
     #
@@ -723,7 +848,7 @@ def historical_toggle_visibility(map_widget, view_toggle):
     return (historical_view,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def click_plot(glider_records, historical_view, map_ui, set_plot_closed):
     _clicked = (map_ui.value or {}).get("clicked") or {}
     _click_lon, _click_lat = _clicked.get("lng"), _clicked.get("lat")
@@ -764,8 +889,12 @@ def click_plot(glider_records, historical_view, map_ui, set_plot_closed):
     return (selected_glider_record,)
 
 
-@app.cell
-def glider_highlight(glider_highlight_expr, map_widget, selected_glider_record):
+@app.cell(hide_code=True)
+def glider_highlight(
+    glider_highlight_expr,
+    map_widget,
+    selected_glider_record,
+):
     # Paint the selected deployment in SELECTED_COLOR, everything else in LINE_COLOR.
     #
     # This is a separate cell from `map` on purpose, for the same reason `click_plot` is:
@@ -783,6 +912,19 @@ def glider_highlight(glider_highlight_expr, map_widget, selected_glider_record):
     _expression = glider_highlight_expr(_selected)
     map_widget.set_paint_property("glider-track-line", "line-color", _expression)
     map_widget.set_paint_property("glider-segment-markers", "circle-color", _expression)
+    return
+
+
+@app.cell(hide_code=True)
+def sst_date_filter(map_widget, sst_date_picker):
+    # Separate cell from `map`, same reasoning as `glider_highlight`: reading
+    # map_widget here and calling a method on it does not re-run `map` --
+    # marimo's dataflow only runs downstream. set_filter is a transient comm
+    # message like set_paint_property, so it does not survive a page reload --
+    # the map comes back showing sst_meta["default_date"] (the baked-in filter)
+    # until the next date change, same "degrades to a sane default, never to a
+    # broken map" behavior as glider_highlight's selection state.
+    map_widget.set_filter("sst", ["==", ["get", "date"], sst_date_picker.value])
     return
 
 
@@ -844,7 +986,7 @@ def plot_overlay(
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     # Native marimo reactive state for the popup's open/closed flag -- NOT a
     # DOM/JS trick. Every popup design since pass six relied on inline
@@ -873,7 +1015,7 @@ def _(mo):
     return get_plot_closed, set_plot_closed
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _():
     # Split out from `nb_imports` on purpose -- see the comment there. Only
     # `click_plot` (and therefore `plot_overlay`) should ever need to rerun
@@ -884,7 +1026,7 @@ def _():
     return (plot_glider_curtain,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def glider_decimation_control(mo, selected_glider_record):
     # Thins the plotted points for readability -- weeks of frequent-sampling data
     # renders very clustered/hard-to-read otherwise. Purely a display-density
@@ -916,7 +1058,7 @@ def glider_decimation_control(mo, selected_glider_record):
     return (glider_decimation_slider,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def glider_time_control(mo, selected_glider_record):
     # Scoped to the CLICKED deployment's own already-cached full time range -- no
     # new fetch, just narrows what of the already-loaded DataFrame gets plotted.
@@ -945,7 +1087,7 @@ def glider_time_control(mo, selected_glider_record):
     return (glider_time_slider,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def filtered_glider_plot(
     CONFIG_MAP,
     glider_decimation_slider,
