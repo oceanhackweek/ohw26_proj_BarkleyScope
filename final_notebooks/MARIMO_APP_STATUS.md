@@ -22,13 +22,74 @@ text editor, not the running app). It's a PEP-723 script (inline `# /// script` 
 header at the top of the file) — if you ever run it with a bare `marimo edit Web_App_test.py`
 from a terminal, use `--sandbox` or the header is ignored.
 
-**After any server restart, the kernel starts with none of the app's packages installed** — the
-hub's marimo process runs against a shared base env, not a per-file venv, so this happens on
-every fresh restart, not just the first ever run. `nb_imports` will fail with
-`ModuleNotFoundError: No module named 'maplibre'` until `anywidget`, `maplibre==0.3.6`, and
-`plotly` are (re)installed (`pip install`, or via the marimo UI's package panel, or
-`ctx.packages.add(...)` if driving it through the `marimo-pair` skill). Then rerun `nb_imports`
-and anything still `stale`.
+**Install the app's packages into the *user* site, once — not into the base env.** This is
+what fixes the long-standing "opens blank in the hub" failure; see "Why it went blank"
+below for the mechanism.
+
+```bash
+python -m pip install --user maplibre==0.3.6 anywidget plotly
+```
+
+`--user` puts them in `/home/jovyan/.local/lib/python3.14/site-packages`, which is on the
+NFS home volume and therefore survives a server restart. Installing them into
+`/home/.pixi/envs/default` (what a bare `pip install` does) works until the next restart
+and no further: that env lives on the container overlay and is rebuilt from the image
+every time. That is why they kept disappearing.
+
+### Why it went blank (diagnosed 2026-08-28)
+
+The hub's launcher tile runs `marimo edit --sandbox`, which normally builds a throwaway uv
+venv per notebook — but both apps' PEP-723 headers carry
+
+```toml
+[tool.marimo.venv]
+path = "/home/.pixi/envs/default"
+```
+
+and marimo 0.24 gives a *configured* venv precedence over the ephemeral sandbox
+(`marimo/_session/managers/ipc.py`). So the kernel runs in the shared conda base env, and
+marimo treats a configured venv as **read-only — it will not install anything into it**.
+That env ships without `maplibre`, `anywidget` or `plotly`, so `nb_imports` raised
+`ModuleNotFoundError`, every cell downstream of it — including `map` — never ran, and the
+page rendered nothing at all. No error is visible without opening the cell, which is why
+this read as "the map is broken" rather than "a package is missing".
+
+Reproduced and fixed on 2026-08-28: with the three packages on the user site,
+`marimo export html` (which executes every cell through marimo's own runtime) completes
+with no failed cells.
+
+There was a **second, independent** version of the same failure hiding behind it, for
+anyone who runs without that venv pin — a real sandbox builds from the `dependencies` list,
+which was missing `requests`, `netCDF4`, `xarray` and `gsw`. Those are not imported by the
+app file; they come in one module deeper, through `glider_lib` → `data/cproof_https.py` →
+`data/cproof_glider.py`. `marimo export html --sandbox` failed with
+`No module named 'requests'` in `glider_data` and "An ancestor raised an exception" in
+every cell after it — the same blank page, a different cause. The header now lists them,
+and that path exports clean too.
+
+**`Web_App_test.py` still does not run**, for an unrelated and already-known reason: it
+reads `NE_San_Diego_Trough_Aug_2022.csv`, which is gitignored and absent from a clean
+checkout, so `ctd_data` raises `FileNotFoundError` and `map` never runs. A fix sits in a
+local `git stash`. `Real-Time_Glider_WebApp.py` is the one that works.
+
+## Showing it in a presentation
+
+`final_notebooks/serve_app.sh` serves the real-time app in marimo's *app* mode — no code
+cells, no editor chrome — and prints a link:
+
+```
+https://hub.cryointhecloud.com/user/<you>/proxy/absolute/2718/
+```
+
+The link is live only while that command is running and while your own hub server is up;
+it is proxied through your singleuser server, so anyone opening it needs access to that
+server. It is not a public URL. The script's comments explain the two proxy details that
+have to be right (bind IPv4, and use the `/proxy/absolute/<port>/` route with a matching
+`--base-url`) — both are traps the image's own config file documents.
+
+For a link that survives without a running server, `marimo export html` produces a
+self-contained ~7.5 MB snapshot. The map renders and pans, since MapLibre is client-side,
+but anything that needs Python — the view switch, click-to-plot — will not respond.
 
 ## Architecture
 

@@ -1,7 +1,7 @@
 # Glider track changes — what the map draws, and what it refuses to draw
 
-Three changes to how `Real-Time_Glider_WebApp.py` represents glider tracks, plus one
-unresolved problem to be aware of before testing. `REALTIME_WEBAPP_SUMMARY.md` describes
+Three changes to how `Real-Time_Glider_WebApp.py` represents glider tracks, plus the
+blank-page problem that used to block testing them — now diagnosed and fixed. `REALTIME_WEBAPP_SUMMARY.md` describes
 the app itself; this covers only what changed and why, with the measurements behind each
 decision.
 
@@ -10,31 +10,41 @@ cells. Branch `shannon`, commits `ddb009c` and `73947dc`.
 
 ---
 
-## Status: neither app rendered when tested in the hub's marimo
+## Status: the blank page in the hub is diagnosed and fixed (2026-08-28)
 
-**This is unresolved and was not diagnosed.** Both `Web_App_test.py` and
-`Real-Time_Glider_WebApp.py` failed to render when opened through marimo in the hub;
-investigation was stopped before a cause was found. What is known:
+Both apps came up blank when opened through the hub's marimo tile. The cause was not the
+map, the widget, or the network: **`maplibre`, `anywidget` and `plotly` were missing from
+the environment the kernel runs in**, so `nb_imports` raised `ModuleNotFoundError` and
+every cell downstream of it — `map` included — never ran.
 
-- `Web_App_test.py` fails for a **known and separate** reason: it reads
-  `NE_San_Diego_Trough_Aug_2022.csv`, which is gitignored and absent from a clean
-  checkout, so `ctd_data` raises `FileNotFoundError`. Because `map` depends on that cell's
-  `ctd_lon`/`ctd_lat`, nothing downstream runs and the page is blank. A fix for this exists
-  in a local `git stash` (reads a real profile from the tracked archive instead) and has
-  not been applied — it touches `glider_lib.py`, which has since changed upstream, so
-  expect a possible conflict when unstashing.
-- `Real-Time_Glider_WebApp.py` runs clean **outside** the hub: as a script, and served by
-  both `marimo run` and `marimo edit` (HTTP 200, no errors). So the failure is
-  environmental or specific to how the hub launches marimo, not visible in the file itself.
-- The most likely candidate, documented in `MARIMO_APP_STATUS.md` under "Running it": after
-  a server restart the hub's marimo runs against a shared base env with none of the app's
-  packages installed, and `nb_imports` fails with `ModuleNotFoundError: No module named
-  'maplibre'`. **Check which cell is red before assuming it is anything else** — that
-  symptom looks identical to a blank map.
-- A second candidate, untested: `MODE="live"` fetches ~2.3 MB of netCDF per deployment from
-  C-PROOF on open. With `auto_instantiate = true` (set in `pyproject.toml`) every cell runs
-  at load, so a slow or blocked network shows as a blank page while it waits, not as an
-  error.
+The reason that kept coming back after each server restart, and the reason installing them
+"fixed it" only until the next one: the launcher runs `marimo edit --sandbox`, but both
+apps' PEP-723 headers pin `[tool.marimo.venv] path = "/home/.pixi/envs/default"`, and
+marimo 0.24 gives a configured venv precedence over an ephemeral sandbox. That env is the
+shared conda base env, it sits on the **container overlay** (rebuilt from the image on
+every restart), and marimo treats a configured venv as read-only, so it will not install
+anything into it either.
+
+Fix: install into the persistent user site, which is on the NFS home volume.
+
+```bash
+python -m pip install --user maplibre==0.3.6 anywidget plotly
+```
+
+A second, independent blank page was hiding behind that one, for anyone running without the
+venv pin: the header's `dependencies` list was missing `requests`, `netCDF4`, `xarray` and
+`gsw` — pulled in one module deeper by `glider_lib` → `data/cproof_https.py` →
+`data/cproof_glider.py`, so nothing in the app file names them. `marimo export html
+--sandbox` died with `No module named 'requests'` in `glider_data` and "An ancestor raised
+an exception" in every cell after it. The header now lists them.
+
+Both paths were then re-run and export clean, with no failed cells. Full write-up in
+`MARIMO_APP_STATUS.md`, "Running it".
+
+`Web_App_test.py` remains broken for its own separate, already-known reason: it reads
+`NE_San_Diego_Trough_Aug_2022.csv`, which is gitignored and absent from a clean checkout,
+so `ctd_data` raises `FileNotFoundError`. A fix for that sits in a local `git stash` and
+has not been applied.
 
 ---
 

@@ -2,15 +2,40 @@
 # requires-python = ">=3.14"
 # dependencies = [
 #     "anywidget==0.11.0",
+#     "gsw==3.6.23",
 #     "maplibre==0.3.6",
 #     "marimo>=0.24.0",
+#     "netCDF4==1.7.4",
 #     "numpy==2.5.2",
 #     "pandas==3.0.5",
 #     "plotly==7.0.0",
+#     "requests==2.34.2",
+#     "xarray==2026.7.0",
 # ]
 # [tool.marimo.venv]
 # path = "/home/.pixi/envs/default"
 # ///
+#
+# gsw, netCDF4, requests and xarray are not imported by this file -- they are
+# what the DATA path pulls in, one module deeper: glider_lib ->
+# data/cproof_https.py (requests, xarray, gsw) -> data/cproof_glider.py
+# (netCDF4). Leaving them out is invisible in the hub, whose kernel runs in the
+# configured venv below (a full conda env that already has them), and fatal
+# anywhere marimo builds an ephemeral venv from this list instead: `glider_data`
+# dies on `No module named 'requests'`, and every cell downstream -- including
+# `map` -- reports "An ancestor raised an exception" and renders nothing. A blank
+# page, with the cause one cell up from anything that looks map-related.
+#
+# [tool.marimo.venv].path pins the kernel to the hub's shared conda env rather
+# than an ephemeral sandbox. marimo treats a configured venv as read-only and
+# will NOT install into it, so anything this app needs that the env lacks
+# (maplibre, anywidget, plotly) has to be installed there by hand -- and that env
+# lives on the container overlay, so it is wiped on every server restart. Install
+# into the persistent user site instead, which survives restarts:
+#
+#     python -m pip install --user maplibre==0.3.6 anywidget plotly
+#
+# See MARIMO_APP_STATUS.md, "Running it".
 
 import marimo
 
