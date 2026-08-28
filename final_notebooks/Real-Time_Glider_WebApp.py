@@ -152,6 +152,13 @@ def config():
                                            # and white-ringed so the leading end of a track
                                            # is obvious -- with the trail behind it, that
                                            # is what shows which way the glider is going.
+            "HEAD_COLOR": "#e02020",      # and in its own colour, which does NOT change with
+                                           # selection: this dot means "latest fix", a
+                                           # different fact from "the track you clicked".
+                                           # Highest contrast of the candidates measured
+                                           # against the basemap's water (2.77:1 on #a8c9e8,
+                                           # against magenta's 2.37 and the old orange's
+                                           # 1.20), which is what a single small dot needs.
             "DEPTH_POSITIVE_DOWN": True,
         },
         "HISTORICAL": {
@@ -221,8 +228,10 @@ def about_note(mo, sst_meta):
       to the shared archive columns, and picking surfacings by a shallow-depth cut swings between 4
       and 10 points a day depending on where the cut lands.
 
-      The newest fix of each deployment is drawn bigger, with a white ring: that is where the glider
-      is now, and the trail behind it is the direction it came from.
+      The newest fix of each deployment is drawn bigger, white-ringed and in red: that is where the
+      glider was last reported, and the trail behind it is the direction it came from. Click that dot
+      for the deployment and the time of the fix. Its colour does not change with selection --  it
+      means "last position", not "the one you picked".
 
       Click anywhere on a deployment to select it: all of its points turn magenta and a 3D curtain
       plot of that deployment opens in the sidebar. Data is real-time and **not calibrated** -- only
@@ -538,7 +547,17 @@ def map(
                 "coordinates": [float(_rec["df"]["Longitude"].iloc[_i]),
                                 float(_rec["df"]["Latitude"].iloc[_i])],
             },
-            "properties": {"deployment": _rec["deployment"], "glider": _rec["glider"]},
+            "properties": {
+                "deployment": _rec["deployment"],
+                "glider": _rec["glider"],
+                # Rendered into the popup below. Local time, matching the sidebar's own
+                # "Showing:" label rather than mixing two clocks in one app --
+                # "Etc/GMT+7" is POSIX-sign-inverted and means UTC-7, i.e. PDT.
+                "label": (_rec["df"]["Time"].iloc[_i].tz_convert("Etc/GMT+7")
+                          .strftime("%Y-%m-%d %H:%M PDT")),
+                "position": (f'{_rec["df"]["Latitude"].iloc[_i]:.3f} N, '
+                             f'{abs(_rec["df"]["Longitude"].iloc[_i]):.3f} W'),
+            },
         }
         for _rec in glider_records
         # By TIME, not by row order: the loader sorts, but this should not silently
@@ -650,9 +669,11 @@ def map(
         source="glider-head",
         paint={
             "circle-radius": CONFIG_MAP["GLIDER"]["HEAD_RADIUS"],
-            # Same expression as the trail, so the newest fix is highlighted along with
-            # its own deployment rather than becoming a third colour to decode.
-            "circle-color": _highlight_expr(),
+            # A fixed colour, deliberately NOT the selection expression the trail uses.
+            # This dot answers "where is it now", which is true whether or not the track
+            # is selected; if it changed with selection it would be saying two things
+            # with one channel.
+            "circle-color": CONFIG_MAP["GLIDER"]["HEAD_COLOR"],
             "circle-stroke-width": 2.5,
             "circle-stroke-color": "#ffffff",
         },
@@ -730,6 +751,26 @@ def map(
         controls=[NavigationControl(), ScaleControl()],
     )
 
+    # Label the newest fix on the map itself: click the red dot and a popup says what
+    # it is and when it was reported.
+    #
+    # `add_popup` binds MapLibre's own layer-scoped click handler, so it fires only on
+    # that layer and only while it is visible -- nothing to switch off for the
+    # historical view. The template is mustache, rendered against each feature's own
+    # properties by the widget's JS.
+    #
+    # `use_message_queue(False)` for the same reason the Folger markers used it: with
+    # the queue on, a pre-render call is flushed once and dropped, so the popup would
+    # stop working after a page reload. In `calls` -- a synced traitlet -- the widget's
+    # JS replays it on every map load.
+    map_widget.use_message_queue(False)
+    map_widget.add_popup(
+        "glider-head",
+        template=("<b>Last recorded position</b><br>{{glider}}<br>"
+                  "{{label}}<br>{{position}}"),
+    )
+    map_widget.use_message_queue(True)
+
     # IMPORTANT: map_ui is created AND displayed in this same cell, and this
     # cell's own inputs never change after notebook load -- nothing here
     # depends on `clicked` or `selection_plot`, so this cell runs exactly
@@ -772,6 +813,7 @@ def map(
     # views, and the "i" popover carries the full list.
     _site_count = len(folger_sites["features"]) + len(climatology_layer_sites["features"])
     _live_colour = CONFIG_MAP["GLIDER"]["LINE_COLOR"]
+    _head_colour = CONFIG_MAP["GLIDER"]["HEAD_COLOR"]
     _active_days = CONFIG_MAP["GLIDER"]["ACTIVE_DAYS"]
     _active_days_label = f"{_active_days:g} day" + ("" if _active_days == 1 else "s")
 
@@ -971,6 +1013,14 @@ def map(
         height: 11px;
         background: {_live_colour};
       }}
+      .glider-map-root .legend-head {{
+        width: 9px;
+        height: 9px;
+        background: {_head_colour};
+        border-width: 1.5px;
+        margin-right: 6px;
+        vertical-align: -1px;
+      }}
       /* Deliberately neither of the map's two site colours: those swap with the view,
          and this legend does not. */
       .glider-map-root .legend-site {{
@@ -1012,7 +1062,7 @@ def map(
           <span class="legend-key"><span class="legend-dot legend-live"></span></span>
           <span><b>Real-time</b> glider<br>
             <span class="legend-sub">positions, last {_active_days_label}<br>
-              ringed dot = newest fix</span></span>
+              <span class="legend-dot legend-head"></span>last recorded position</span></span>
         </div>
         <div class="legend-row">
           <span class="legend-key"><span class="legend-dot legend-historical"></span></span>
@@ -1270,7 +1320,6 @@ def glider_highlight(
     _selected = selected_glider_record["deployment"] if selected_glider_record else ""
     _expression = glider_highlight_expr(_selected)
     map_widget.set_paint_property("glider-positions", "circle-color", _expression)
-    map_widget.set_paint_property("glider-head", "circle-color", _expression)
     return
 
 
