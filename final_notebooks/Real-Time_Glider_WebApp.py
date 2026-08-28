@@ -208,107 +208,52 @@ def config():
 
 @app.cell(hide_code=True)
 def about_note(mo, sst_meta):
+    # Kept deliberately short. This opens over the map, and a popover long enough to
+    # scroll is one nobody reads -- the full reasoning behind every number here lives in
+    # data/README.md, data/sst/README.md and contributor_folders/Dwight/CLIMATOLOGY.md.
+    #
+    # Citations first, because they are the part with an obligation attached.
+    #
+    # URLs are written as plain text rather than links: links inside this panel did not
+    # respond when tested in the browser, and a link that looks clickable but is not is
+    # worse than an address you can read.
     about_md = mo.md(f"""
-    **About this app:** marimo + MapLibre rebuild of `Glider_Map_App.ipynb` (which used ipyleaflet +
-    Voila; see `VOILA_TROUBLESHOOTING.md` for why that path was painful).
+    **Data sources.** Everything here is somebody else's observation -- cite the source, not
+    this app.
 
-    - **Glider** -- real C-PROOF glider deployments, loaded through `glider_lib.load_active_gliders()`
-      straight from C-PROOF's own server (`data/cproof_https.py`, refreshed hourly) -- current to the
-      hour rather than the IOOS DAC archive's multi-day lag (see `data/README.md`). Only deployments
-      with an observation inside the trailing `CONFIG_MAP["GLIDER"]["ACTIVE_DAYS"]` window are shown,
-      and only the part of each track that falls *inside* that window is drawn -- so what you see is
-      where the gliders have been over that period, not their whole deployment history. Widen
-      `ACTIVE_DAYS` to see further back. A glider that has left the study box contributes nothing to
-      the window and drops off the map rather than leaving a stale line behind.
-
-      Drawn as one point per observation -- 30-second samples, positions dead-reckoned between GPS
-      fixes -- rather than a line, on the same reasoning as the historical layer below: nothing in
-      this product says what happened between two fixes, so nothing is drawn there. These are not
-      surfacings only; the live timeseries has no profile key on it once `snapshot()` has reduced it
-      to the shared archive columns, and picking surfacings by a shallow-depth cut swings between 4
-      and 10 points a day depending on where the cut lands.
-
-      The newest fix of each deployment is drawn bigger, white-ringed and in red: that is where the
-      glider was last reported, and the trail behind it is the direction it came from. Click that dot
-      for the deployment and the time of the fix. Its colour does not change with selection --  it
-      means "last position", not "the one you picked".
-
-      Click anywhere on a deployment to select it: all of its points turn magenta and a 3D curtain
-      plot of that deployment opens in the sidebar. Data is real-time and **not calibrated** -- only
-      a gross-range screen has been applied.
-
-    - **Historical** -- the switch at the top swaps the live view for every deployment on the
-      **Southern Line** and the **SVI Shelf from Bamfield** line that has a gridded adjusted file:
-      26 deployments, 28,452 profile positions, coloured by deployment date.
-
-      This view also shows the eight moorings and buoys that have a day-of-year temperature
-      climatology -- the two Folger Passage sites, five Barkley Canyon moorings from 398 m down to
-      983 m, and the La Perouse Bank buoy. **Click any of them** for its climatology: the day-of-year
-      mean with 1 and 2 sd bands, the current year overlaid. Records run from 9 to 34 years depending
-      on the site. Built by `contributor_folders/Dwight/onc_climatology.py`; the screening rules and
-      caveats are in that folder's `CLIMATOLOGY.md`.
-
-      Zoom in before clicking in Barkley Canyon: Hydrates, Mid-East and Axis sit within 0.016 deg of
-      each other and Folger Deep and Pinnacle within 0.006, so at the opening zoom they overplot. The
-      click resolves to the nearest site, not the first one drawn, so zooming is enough to separate
-      them.
-
-      Each profile is drawn as its own point and nothing is drawn between them. The gridded files
-      sample anywhere from every ~9 minutes to every ~1 hour, so a line joining consecutive profiles
-      would either invent a path across a real gap or break a sparse transit into dashes, depending
-      on where a threshold landed. Points assert only what was measured, so sparse deployments
-      genuinely look sparse.
-
-      Positions come from `data/glider_adjusted_tracks.geojson`, precomputed by
-      `data/build_historical_tracks.py` -- the app reads ~1.3 MB of geometry, never the 10.68 GB of
-      netCDF behind it. Colour is keyed on the date in each deployment's directory name; the files'
-      own `deployment_start` attribute is wrong in 13 of the 26.
-
-    - **Folger Deep** and **Folger Pinnacle** -- the two Ocean Networks Canada instrument sites in
-      Folger Passage, the only sites shown in *both* views, as fixed reference points. They are greyed out over the
-      real-time view, where a reporting glider is the subject, and black over the historical one,
-      where the moorings are the only continuously-present instruments on the map. They sit ~650 m
-      apart and overplot until you zoom in.
-
-    - **Sea surface temperature** -- satellite SST, one fill layer for every date available at once,
-      switched by the "SST date" control (top left). {sst_meta["source_caveat"]} The colour scale is
-      fixed at {sst_meta["color_range"][0]:.0f}-{sst_meta["color_range"][1]:.0f}°C year-round,
-      deliberately not autoscaled per day, so unchanged water doesn't appear to change temperature as
-      you switch dates. Faint cells in the far corner are real water the satellite can see but this
-      study box isn't about -- muted, not hidden. See `data/sst/INTEGRATING_THE_LAYER.md` for the full
-      pipeline.
-
-    **Data shape:** `load_active_gliders()` standardizes every deployment to `Longitude`, `Latitude`,
-    `Depth`, `<variable>` -- the same schema `glider_lib.load_platform_data()` produces for a plain
-    CSV/NetCDF file, so any future platform wired in through that loader works with the map/click-plot
-    cells unmodified.
+    - **Ocean Networks Canada** -- Folger Passage and Barkley Canyon moorings, and the
+      climatologies built from them. Per-deployment DOIs: `data/folger/Folger_Citations.md`,
+      `data/barkley/Barkley_Citations.md`. Portal: data.oceannetworks.ca
+    - **C-PROOF** (University of Victoria) -- every glider deployment.
+      cproof.uvic.ca/gliderdata/deployments is the live server; the quality-controlled archive
+      is the IOOS Glider DAC, gliders.ioos.us/erddap
+    - **DFO / MEDS** -- buoy C46206, La Perouse Bank, 1988-2022.
+    - **NOAA CoastWatch** -- Geo-polar blended SST, coastwatch.pfeg.noaa.gov/erddap. Basemap
+      tiles are Esri Ocean.
 
     ---
 
-    **Data sources and citations.** Everything on this map is somebody else's observation. Cite the
-    source, not this app.
+    **Real-time** -- C-PROOF gliders with a fix in the last
+    `CONFIG_MAP["GLIDER"]["ACTIVE_DAYS"]` day(s), read from C-PROOF's own server and current to
+    the hour. One point per observation, and only the part of each track inside that window.
+    The red dot is the last recorded position; click it for the time. Click a track for a 3D
+    curtain plot. **Not calibrated** -- a gross-range screen only.
 
-    - **Ocean Networks Canada** -- the Folger Passage and Barkley Canyon moorings, and the
-      climatologies built from them. Each deployment has its own DOI; the full list, as ONC issues it,
-      is in `data/folger/Folger_Citations.md` and `data/barkley/Barkley_Citations.md`. Data portal:
-      [data.oceannetworks.ca](https://data.oceannetworks.ca). Form:
-      *Ocean Networks Canada Society. YEAR. Station Instrument Deployed DATE. https://doi.org/...*
+    **Historical** -- every Southern Line and SVI Shelf deployment with a gridded adjusted file:
+    26 deployments, 28,452 profile positions, coloured by deployment date. Also the eight
+    moorings and buoys with a day-of-year temperature climatology -- click one for its plot.
+    Zoom in first in Barkley Canyon: three of those sites sit within 0.016 deg of each other.
 
-    - **C-PROOF** (Canadian-Pacific Robotic Ocean Observing Facility, University of Victoria) -- every
-      glider deployment, live and historical.
-      [cproof.uvic.ca/gliderdata/deployments](https://cproof.uvic.ca/gliderdata/deployments/) is the
-      live server this app reads; the quality-controlled archive is on the
-      [IOOS Glider DAC](https://gliders.ioos.us/erddap). Real-time values are **not calibrated**.
+    **Sea surface temperature** -- satellite SST for every available date, switched by the
+    control at the left. About two days behind. The scale is fixed at
+    {sst_meta["color_range"][0]:.0f}-{sst_meta["color_range"][1]:.0f} degrees C year-round, so
+    unchanged water does not appear to change colour as you switch dates.
 
-    - **DFO / MEDS** -- buoy C46206, La Perouse Bank, 1988-2022, via
-      [Fisheries and Oceans Canada](https://www.meds-sdmm.dfo-mpo.gc.ca).
+    **Why points, not lines** -- nothing in either product says what happened between two
+    fixes, so nothing is drawn there.
 
-    - **NOAA CoastWatch** -- the Geo-polar blended SST analysis, via
-      [coastwatch.pfeg.noaa.gov/erddap](https://coastwatch.pfeg.noaa.gov/erddap). Basemap tiles are
-      Esri Ocean.
-
-    Per-source detail, including what was screened and why, lives in `data/README.md`,
-    `data/sst/README.md` and `data/folger_taylor/METHODS.md`.
+    Full detail: `data/README.md`, `data/sst/README.md`,
+    `contributor_folders/Dwight/CLIMATOLOGY.md`.
     """)
     return (about_md,)
 
@@ -980,10 +925,6 @@ def map(
         margin: 4px 0 3px 30px;
         background: linear-gradient(to right, {_ramp_css});
       }}
-      /* The credit line is the one part of the legend that is NOT click-through: the
-         panel sets pointer-events: none so it never steals a click meant for the map,
-         and this re-enables it for the links only. Without that the links render but
-         cannot be clicked, which is worse than not linking them at all. */
       .glider-map-root .legend-credit {{
         margin-top: 9px;
         padding-top: 7px;
@@ -991,18 +932,7 @@ def map(
         color: #aab3bb;
         font-size: 11.5px;
         line-height: 1.45;
-        pointer-events: auto;
         overflow-wrap: break-word;
-      }}
-      .glider-map-root .legend-credit a {{
-        color: #d6e4f0;
-        text-decoration: none;
-        border-bottom: 1px dotted rgba(214, 228, 240, 0.5);
-        white-space: nowrap;
-      }}
-      .glider-map-root .legend-credit a:hover {{
-        color: #ffffff;
-        border-bottom-color: #ffffff;
       }}
       .glider-map-root .legend-ends {{
         display: flex;
@@ -1093,15 +1023,7 @@ def map(
             <span class="legend-sub">{_site_count} sites — click one in Historical</span></span>
         </div>
         <div class="legend-credit">
-          Data:
-          <a href="https://data.oceannetworks.ca" target="_blank" rel="noopener">ONC</a> ·
-          <a href="https://cproof.uvic.ca/gliderdata/deployments/" target="_blank"
-             rel="noopener">C-PROOF</a> ·
-          <a href="https://www.meds-sdmm.dfo-mpo.gc.ca/isdm-gdsi/waves-vagues/index-eng.html"
-             target="_blank" rel="noopener">DFO</a> ·
-          <a href="https://coastwatch.pfeg.noaa.gov/erddap" target="_blank"
-             rel="noopener">NOAA</a><br>
-          full citations under <b>i</b>
+          Data: ONC · C-PROOF · DFO/MEDS · NOAA — see <b>i</b>
         </div>
       </div>
       <div class="sst-legend">
@@ -1117,7 +1039,11 @@ def map(
       </div>
       <details class="about-toggle">
         <summary>i</summary>
-        <div class="about-body">{about_md}</div>
+        <!-- .text, not the object: an f-string on an mo.md(...) returns its MARKDOWN
+             SOURCE, not HTML (its __format__ does), so `{about_md}` printed raw
+             asterisks and backticks into this panel. Same trap this file already
+             documents for plotly figures, different type. -->
+        <div class="about-body">{about_md.text}</div>
       </details>
     </div>
     """)
