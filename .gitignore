@@ -46,3 +46,15 @@ data/PartII_API_Access.ipynb
 # what the set contains and why each excluded mission was excluded.
 data/glider_adjusted/**/*.nc
 data/glider_adjusted/rejected/
+
+# Local scratch notes. HANDOFF.md is orientation for whoever picks the branch up next --
+# useful while the work is in flight, stale the moment it merges, and it duplicates what
+# the tracked docs (data/README.md, final_notebooks/MARIMO_APP_STATUS.md) already say
+# properly. Keep your own; don't commit it.
+final_notebooks/HANDOFF.md
+
+# Preview renders. build_historical_tracks.py and the sst/preview_*.py scripts draw these
+# to eyeball a layer before trusting it; they are checks, not outputs, and they are
+# regenerated in seconds from committed data.
+data/glider_tracks_map.png
+data/sst/preview_*.png

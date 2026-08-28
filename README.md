@@ -100,6 +100,53 @@ reads. To rebuild any of those from scratch you need the source data locally:
   Sound, an open issue) and `NE_San_Diego_Trough_Aug_2022.csv` (an example CalCOFI cast).
   With `CONFIG["USE_SAMPLE_DATA"] = True`, the default, it runs on synthetic data instead.
 
+## Reproducibility
+
+**The app reproduces from a bare `git clone`. Most of the pipelines behind it do too. The
+environment is the weak link.**
+
+**Reproduces with no downloads:**
+
+* The app itself — everything it reads at load is committed: 3.4 MB of GeoJSON plus the
+  eight climatology plots. Only the live glider fetch and the basemap need network.
+* The whole climatology pipeline. The ONC and DFO source records are tracked (~52 MB across
+  `data/folger`, `data/barkley`, `data/buoys`), so `onc_climatology.py --all` followed by
+  `build_climatology_sites.py` regenerates all eight plots and the site layer from scratch.
+* The SST layer, and the Folger point history back to 2019 (`data/sst/folger_point_daily.csv`).
+
+**Needs a fetch:**
+
+* Rebuilding `glider_adjusted_tracks.geojson`. The output is committed; the 10.68 GB gridded
+  set behind it is not — 21 of those files exceed GitHub's 100 MB limit. Pull them with
+  `gh release download glider-adjusted-v1` (27 assets) or re-fetch with
+  `fetch_grid_adjusted.py`. `data/glider_adjusted/manifest.json` is tracked and records what
+  the set contains and why four missions were excluded.
+* Anything live. The real-time view is a snapshot of the hour it loaded.
+* **SST older than a week.** The archive is a rolling 7-day window, so days that roll off are
+  gone unless someone saves them.
+
+**What runs unattended:** one job. `watch-glider-transects.yml` records new transects in the
+box daily at 00:00 UTC and commits the manifest. The SST job is dispatched by hand, and the
+gridded set, the ONC downloads and the climatologies are entirely manual.
+
+**Known gaps, in the order worth fixing:**
+
+1. The app's PEP-723 header carries `[tool.marimo.venv] path = "/home/.pixi/envs/default"`,
+   an absolute path that exists only on this hub. Off-hub that is a hard failure, not a
+   fallback. The header lists every runtime dependency, so removing the pin should be enough
+   to make the app portable.
+2. There is no repo-level `requirements.txt` or lockfile — the data scripts inherit whatever
+   the hub image ships. `contributor_folders/Dwight/requirements.txt` pins `pandas==2.1.4`
+   while the hub runs 3.0.5, so it is already out of step with the environment it runs in.
+3. The one-off `pip install --user maplibre==0.3.6 anywidget plotly` is per-account setup
+   captured only in prose, here and in `MARIMO_APP_STATUS.md`.
+
+**If this should outlive the hackweek:** deposit the derived products (tracks GeoJSON,
+climatology CSVs and plots, SST layer) on Zenodo for a DOI and a citable record — 50 GB
+default quota, comfortably enough. Keep re-fetching the big glider set from C-PROOF rather
+than mirroring it; the fetcher is idempotent and the server is authoritative. Git LFS is not
+an option at this scale: 10.68 GB against a 1 GB free quota.
+
 ## Folder structure
 
 * `final_notebooks` — the app, the shared plotting library (`glider_lib.py`), the curtain
