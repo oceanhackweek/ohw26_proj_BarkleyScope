@@ -127,11 +127,6 @@ def config():
                                            # glider still emitting, stuck GPS) and should not be
                                            # drawn anywhere. Real drift is NOT masked -- a parked
                                            # glider still moves with the current. None disables.
-            "MAX_GAP_DEG": 0.05,          # split a track wherever consecutive points jump farther
-                                           # than this (degrees) -- matches click_plot's own
-                                           # _TOLERANCE_DEG by design, so we never draw a "fake"
-                                           # connector line across a real gap that would look
-                                           # clickable but isn't (no real data point is ever near it).
             "VARIABLE": "temperature",    # science variable to plot/color by -- present on every
                                            # deployment (unlike 5 of the other 6 science variables).
             "VARIABLE_LABEL": "Temperature (°C)",
@@ -190,9 +185,16 @@ def about_note(mo, sst_meta):
       `ACTIVE_DAYS` to see further back. A glider that has left the study box contributes nothing to
       the window and drops off the map rather than leaving a stale line behind.
 
-      Click a track to select it: the whole transect turns orange and a 3D curtain plot of that
-      deployment opens in the sidebar. Data is real-time and **not calibrated** -- only a gross-range
-      screen has been applied.
+      Drawn as one point per observation -- 30-second samples, positions dead-reckoned between GPS
+      fixes -- rather than a line, on the same reasoning as the historical layer below: nothing in
+      this product says what happened between two fixes, so nothing is drawn there. These are not
+      surfacings only; the live timeseries has no profile key on it once `snapshot()` has reduced it
+      to the shared archive columns, and picking surfacings by a shallow-depth cut swings between 4
+      and 10 points a day depending on where the cut lands.
+
+      Click anywhere on a deployment to select it: all of its points turn orange and a 3D curtain
+      plot of that deployment opens in the sidebar. Data is real-time and **not calibrated** -- only
+      a gross-range screen has been applied.
 
     - **Historical** -- the switch at the top swaps the live view for every deployment on the
       **Southern Line** and the **SVI Shelf from Bamfield** line that has a gridded adjusted file:
@@ -389,71 +391,39 @@ def map(
         },
     )
 
-    # --- Glider track source/layer: ONE GeoJSONSource, a FeatureCollection with
-    # one LineString feature per CONTIGUOUS segment of each active deployment.
-    # Real gliders sometimes go dark for a stretch and resurface elsewhere --
-    # a single LineString spanning that gap would draw a straight "fake" line
-    # across empty space that LOOKS clickable but has no real data anywhere
-    # near it (click_plot only matches clicks near actual observed points).
-    # Splitting on any gap bigger than MAX_GAP_DEG (matching click_plot's own
-    # proximity radius by design) means every segment we DO draw is guaranteed
-    # clickable along its whole length, and we never draw a segment that can't be.
-    _MAX_GAP_DEG = CONFIG_MAP["GLIDER"]["MAX_GAP_DEG"]
-
-    def _split_on_gaps(df, max_gap_deg=_MAX_GAP_DEG):
-        """Split a track into contiguous segments, breaking wherever consecutive points
-        jump farther apart than max_gap_deg -- each returned segment is safe to render
-        as one continuous line with no real-data dead zones along it."""
-        if len(df) < 2:
-            return [df]
-        _lon = df["Longitude"].to_numpy()
-        _lat = df["Latitude"].to_numpy()
-        _jump = ((_lon[1:] - _lon[:-1]) ** 2 + (_lat[1:] - _lat[:-1]) ** 2) ** 0.5
-        _breaks = [i + 1 for i, d in enumerate(_jump) if d > max_gap_deg]
-        _bounds = [0] + _breaks + [len(df)]
-        return [df.iloc[_bounds[i]:_bounds[i + 1]] for i in range(len(_bounds) - 1)]
-
-    # Compute every (record, segment) pair once -- shared by both the line
-    # features below and the point-marker features that follow, so a track
-    # is never split into gap-segments twice.
-    _glider_segments = [
-        (_rec, _segment)
-        for _rec in glider_records
-        for _segment in _split_on_gaps(_rec["df"])
-    ]
-
-    _glider_features = [
-        {
-            "type": "Feature",
-            "geometry": {
-                "type": "LineString",
-                "coordinates": [[lon, lat] for lon, lat in zip(_segment["Longitude"], _segment["Latitude"])],
-            },
-            # Cosmetic only -- click_plot hit-tests against glider_records' own DataFrames,
-            # not these properties. Every segment split from one deployment still carries
-            # that deployment's own tags, so the glider identity is preserved per segment.
-            "properties": {"deployment": _rec["deployment"], "glider": _rec["glider"]},
-        }
-        for _rec, _segment in _glider_segments
-        if len(_segment) >= 2  # a lone point can't be a LineString
-    ]
-
-    # --- Glider segment position markers ---
-    # A small circle at the first point of EVERY segment (moving or not) -- a
-    # LineString with near-zero spatial extent (a genuinely parked glider, not
-    # just a short gap) renders as nothing at all, since a zero-length line has
-    # no direction to draw a stroke along. This marker guarantees every segment
-    # stays visible and clickable regardless of how much it actually moved.
+    # --- Live glider positions: ONE GeoJSONSource of Points, one per observation.
+    # Points, not a LineString, for the same reason the historical layer is points
+    # (see data/README.md): a line has to decide what happened between two fixes, and
+    # nothing in this product says. These are 30-second samples whose positions are
+    # dead-reckoned between GPS fixes -- roughly 20 m apart, so at map zoom they read
+    # as a continuous trail anyway, and zooming in shows what was actually sampled
+    # rather than a drawn-in path.
+    #
+    # This also retires the gap-splitting the LineString version needed. That existed
+    # to avoid drawing a straight "fake" connector across a real gap -- a line that
+    # looked clickable but had no data near it. Points cannot draw a connector, so
+    # there is no gap threshold left to tune, and every drawn point is by construction
+    # a real observation that click_plot's proximity test will match.
+    #
+    # NOT surfacing-only. The live timeseries carries `profile_index`, but `snapshot()`
+    # returns exactly cproof_glider.COLUMNS (an invariant the archive path shares) and
+    # that does not include it, so there is no profile key on this frame. Picking
+    # surfacings by a shallow-depth cut instead was measured and rejected: on
+    # dfo-eva035-20260826's last day it gives 4, 8, 9 or 10 points depending on whether
+    # the cut is 1, 2, 3 or 5 m, and the count is not even monotonic in the threshold.
+    # That is a knob that silently changes what the map claims, which is exactly what
+    # the historical layer's points were chosen to avoid.
     _glider_point_features = [
         {
             "type": "Feature",
-            "geometry": {
-                "type": "Point",
-                "coordinates": [float(_segment["Longitude"].iloc[0]), float(_segment["Latitude"].iloc[0])],
-            },
+            "geometry": {"type": "Point", "coordinates": [float(_lon), float(_lat)]},
+            # Cosmetic only -- click_plot hit-tests against glider_records' own
+            # DataFrames, not these properties. Every point carries its deployment so
+            # one click lights the whole transect (see _highlight_expr below).
             "properties": {"deployment": _rec["deployment"], "glider": _rec["glider"]},
         }
-        for _rec, _segment in _glider_segments
+        for _rec in glider_records
+        for _lon, _lat in zip(_rec["df"]["Longitude"], _rec["df"]["Latitude"])
     ]
     _glider_points_collection = {"type": "FeatureCollection", "features": _glider_point_features}
 
@@ -463,8 +433,8 @@ def map(
     # `glider_highlight` -- the map itself is never rebuilt, which this cell must never do
     # (see its note below). "" is a sentinel matching no deployment, so nothing starts
     # highlighted; `glider_highlight` re-sends this same shape with the selected name.
-    # Every segment split from one deployment carries that deployment's name, so clicking
-    # any segment lights up all of them -- the whole transect, not just the piece clicked.
+    # Every point of one deployment carries that deployment's name, so clicking anywhere
+    # on it lights up the whole transect, not just the point clicked.
     def _highlight_expr(selected=""):
         return [
             "case",
@@ -475,23 +445,21 @@ def map(
 
     glider_highlight_expr = _highlight_expr
 
+    # Larger than the historical layer's 2.2 px and with a stroke, so the two point
+    # layers stay tellable apart when a presenter switches between them: the live
+    # deployment reads as a chain of distinct beads, the historical record as a fine
+    # spray. No stroke on historical, because 28,452 stroked points is a smear.
     _glider_point_layer = Layer(
-        id="glider-segment-markers",
+        id="glider-positions",
         type=LayerType.CIRCLE,
-        source="glider-points",
+        source="glider-positions",
         paint={
-            "circle-radius": 5,
+            "circle-radius": 3.4,
             "circle-color": _highlight_expr(),
-            "circle-stroke-width": 1,
+            "circle-stroke-width": 0.8,
             "circle-stroke-color": "#ffffff",
+            "circle-opacity": 0.95,
         },
-    )
-    _glider_collection = {"type": "FeatureCollection", "features": _glider_features}
-    _glider_layer = Layer(
-        id="glider-track-line",
-        type=LayerType.LINE,
-        source="glider-track",
-        paint={"line-color": _highlight_expr(), "line-width": 3},
     )
 
     # --- Historical layer: every profile position from the gridded adjusted files ---
@@ -548,13 +516,12 @@ def map(
     # switching to historical never buries a live glider, and Folger sits on top of
     # both.
     _basemap_style = construct_basemap_style(
-        layers=[_esri_layer, _sst_fill, _historical_layer, _glider_layer,
+        layers=[_esri_layer, _sst_fill, _historical_layer,
                 _glider_point_layer, _folger_layer],
         sources={
             "esri-ocean": _esri_source.to_dict(),
             "sst-src": GeoJSONSource(data=sst_layer).to_dict(),
-            "glider-track": GeoJSONSource(data=_glider_collection).to_dict(),
-            "glider-points": GeoJSONSource(data=_glider_points_collection).to_dict(),
+            "glider-positions": GeoJSONSource(data=_glider_points_collection).to_dict(),
             "historical-points": GeoJSONSource(data=historical_tracks).to_dict(),
             "folger-sites": GeoJSONSource(data=folger_sites).to_dict(),
         },
@@ -627,6 +594,9 @@ def map(
     _months = historical_tracks.get("months") or [""]
     _ramp_css = ", ".join(_hist_cfg["RAMP"])
     _site_names = " · ".join(_f["properties"]["name"] for _f in folger_sites["features"])
+    _live_colour = CONFIG_MAP["GLIDER"]["LINE_COLOR"]
+    _active_days = CONFIG_MAP["GLIDER"]["ACTIVE_DAYS"]
+    _active_days_label = f"{_active_days:g} day" + ("" if _active_days == 1 else "s")
 
     # `#plot-panel-slot` lives here, inside the ONE part of this app proven to
     # render stably (nothing about this cell ever re-runs after load, unlike
@@ -779,6 +749,16 @@ def map(
         color: #b9c2cb;
         font-size: 10.5px;
       }}
+      .glider-map-root .legend-live {{
+        display: inline-block;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: {_live_colour};
+        border: 1px solid #fff;
+        vertical-align: -1px;
+        margin-right: 5px;
+      }}
       .glider-map-root .legend-site {{
         display: inline-block;
         width: 9px;
@@ -818,7 +798,8 @@ def map(
       <div class="app-title">Glider Map -- Barkley Sound</div>
       <div class="view-switch">{view_toggle}</div>
       <div class="map-legend">
-        <b>Historical</b> — profile positions by deployment date
+        <div><span class="legend-live"></span><b>Real-time</b> — glider positions, last {_active_days_label}</div>
+        <div style="margin-top:7px"><b>Historical</b> — profile positions by deployment date</div>
         <div class="legend-ramp"></div>
         <div class="legend-ends"><span>{_months[0]}</span><span>{_months[-1]}</span></div>
         <div style="margin-top:7px"><span class="legend-site"></span>{_site_names}</div>
@@ -866,8 +847,7 @@ def historical_toggle_visibility(map_widget, view_toggle):
     _historical = view_toggle.value == "Historical"
 
     map_widget.set_visibility("historical-points", _historical)
-    for _layer in ("glider-track-line", "glider-segment-markers"):
-        map_widget.set_visibility(_layer, not _historical)
+    map_widget.set_visibility("glider-positions", not _historical)
 
     historical_view = _historical
     return (historical_view,)
@@ -935,8 +915,7 @@ def glider_highlight(
     # highlight", never to a broken or misleading map, which is the right way round.
     _selected = selected_glider_record["deployment"] if selected_glider_record else ""
     _expression = glider_highlight_expr(_selected)
-    map_widget.set_paint_property("glider-track-line", "line-color", _expression)
-    map_widget.set_paint_property("glider-segment-markers", "circle-color", _expression)
+    map_widget.set_paint_property("glider-positions", "circle-color", _expression)
     return
 
 
