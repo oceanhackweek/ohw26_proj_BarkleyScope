@@ -62,8 +62,7 @@ def nb_imports():
     from maplibre.map import MapOptions
     from maplibre.layer import Layer, LayerType
     from maplibre.sources import RasterTileSource, GeoJSONSource
-    from maplibre.controls import (NavigationControl, ScaleControl, FullscreenControl,
-                                   Marker)
+    from maplibre.controls import NavigationControl, ScaleControl, FullscreenControl
     from maplibre.basemaps import construct_basemap_style
 
     # Only the data-loading function lives here -- `glider_data` (and
@@ -167,6 +166,7 @@ def config():
             # Greyed out in the real-time view, where they are context next to a
             # glider that is actually reporting; black in the historical view, where
             # the moorings are the only continuously-present instruments on the map.
+            "SITE_RADIUS": 6,
             "SITE_COLOR_LIVE": "#9aa3ab",
             "SITE_COLOR_HISTORICAL": "#0b0b0b",
         },
@@ -217,10 +217,10 @@ def about_note(mo, sst_meta):
       own `deployment_start` attribute is wrong in 13 of the 26.
 
     - **Folger Deep** and **Folger Pinnacle** -- the two Ocean Networks Canada instrument sites in
-      Folger Passage, drawn as anchors and shown in *both* views as fixed reference points. They are
-      greyed out over the real-time view, where a reporting glider is the subject, and black over the
-      historical one, where the moorings are the only continuously-present instruments on the map.
-      They sit ~650 m apart and overplot until you zoom in.
+      Folger Passage, shown in *both* views as fixed reference points. They are greyed out over the
+      real-time view, where a reporting glider is the subject, and black over the historical one,
+      where the moorings are the only continuously-present instruments on the map. They sit ~650 m
+      apart and overplot until you zoom in.
 
     - **Sea surface temperature** -- satellite SST, one fill layer for every date available at once,
       switched by the "SST date" control (top left). {sst_meta["source_caveat"]} The colour scale is
@@ -367,8 +367,6 @@ def map(
     sst_layer,
     sst_meta,
 ):
-    from base64 import b64encode as _b64encode
-
     _lon_lo, _lon_hi = CONFIG_MAP["REGION"]["lon_range"]
     _lat_lo, _lat_hi = CONFIG_MAP["REGION"]["lat_range"]
 
@@ -496,34 +494,40 @@ def map(
         layout={"visibility": "none"},
     )
 
-    # --- Folger Passage instrument sites: anchors ---
-    # Moored ONC platforms, so they are drawn as anchors, and they show in BOTH views
-    # as fixed reference points.
+    # --- Folger Passage instrument sites ---
+    # Visible in both views: fixed reference points, not part of either data mode.
+    # Greyed out over the real-time view and black over the historical one, pushed by
+    # `historical_toggle_visibility` the same way the glider highlight is.
     #
-    # Not a symbol layer with an icon, because there is no way to get an image into
-    # this map. A symbol layer needs either `glyphs` (for text) or `sprite` (for an
-    # icon) in the style, and both are URLs to files this app has nowhere to serve
-    # from. The text route was checked properly rather than assumed: the anchor
-    # character is U+2693, and the only glyph server reachable here
-    # (tiles.openfreemap.org) carries two font stacks, neither of which has that
-    # codepoint in the 9728-9983 range -- 54 glyphs, no 9875. A missing glyph draws
-    # nothing at all, silently, which is the worst possible failure for a marker.
+    # A circle layer, after an attempt at anchor-shaped DOM markers was reverted. That
+    # attempt failed for a reason worth recording, because it rules out a whole class
+    # of ideas here: **the app's CSS cannot reach anything inside the map widget.**
+    # marimo renders its UI plugins into a shadow root, so a `.folger-anchor` rule in
+    # this cell's <style> never matched the marker elements MapLibre creates inside
+    # that root. The markers rendered as MapLibre's own default blue teardrop pins in
+    # both views -- no mask, no colour, no view switch.
     #
-    # So: real MapLibre Markers, which are DOM elements, wearing a class this cell's
-    # own CSS paints with an inline SVG anchor as a mask. No font, no sprite, no
-    # network -- the icon travels inside the page. `folger_marker_tint` recolours the
-    # same class per view (see that cell).
-    _anchor_svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" '
-        'stroke="#000" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">'
-        '<circle cx="12" cy="3.6" r="2.3"/>'
-        '<path d="M12 5.9V21"/>'
-        '<path d="M7.6 9.4h8.8"/>'
-        '<path d="M3.6 14.2c0 4 3.8 6.8 8.4 6.8s8.4-2.8 8.4-6.8"/>'
-        '<path d="M3.6 14.2h3.2M20.4 14.2h-3.2"/>'
-        "</svg>"
+    # What that leaves: anything drawn inside the map has to be styled by MapLibre
+    # itself, through layer paint properties (this) or through a Marker's own `color`
+    # option. Icons are separately out of reach -- a symbol layer needs `glyphs` or
+    # `sprite` in the style, both URLs to files this app has nowhere to serve from,
+    # and the anchor character U+2693 is absent from the only glyph server reachable
+    # here (tiles.openfreemap.org: 54 glyphs in the 9728-9983 range, no 9875).
+    _folger_layer = Layer(
+        id="folger-sites",
+        type=LayerType.CIRCLE,
+        source="folger-sites",
+        paint={
+            "circle-radius": _hist_cfg["SITE_RADIUS"],
+            # Baked as the live colour, matching the view this map opens in. A page
+            # reload comes back here regardless of where the switch is sitting, since
+            # the recolour is a post-render send -- same trade-off, and same direction
+            # of failure, as the selection highlight.
+            "circle-color": _hist_cfg["SITE_COLOR_LIVE"],
+            "circle-stroke-width": 1.6,
+            "circle-stroke-color": "#ffffff",
+        },
     )
-    _anchor_uri = "data:image/svg+xml;base64," + _b64encode(_anchor_svg.encode()).decode()
 
     # All five source/layer pairs are baked directly into the initial style
     # (see earlier pass's long comment for why -- add_source/add_layer after
@@ -532,16 +536,17 @@ def map(
     # rather than added when the view is first switched to.
     #
     # Layer order is draw order: historical points sit under the live positions so
-    # that switching to historical never buries a live glider. The Folger anchors are
-    # not in this list at all -- they are DOM markers, which the browser always paints
-    # above the map canvas, so they sit on top of both views for free.
+    # that switching to historical never buries a live glider, and Folger sits on top
+    # of both.
     _basemap_style = construct_basemap_style(
-        layers=[_esri_layer, _sst_fill, _historical_layer, _glider_point_layer],
+        layers=[_esri_layer, _sst_fill, _historical_layer, _glider_point_layer,
+                _folger_layer],
         sources={
             "esri-ocean": _esri_source.to_dict(),
             "sst-src": GeoJSONSource(data=sst_layer).to_dict(),
             "glider-positions": GeoJSONSource(data=_glider_points_collection).to_dict(),
             "historical-points": GeoJSONSource(data=historical_tracks).to_dict(),
+            "folger-sites": GeoJSONSource(data=folger_sites).to_dict(),
         },
         name="esri-ocean-basemap",
     )
@@ -574,28 +579,6 @@ def map(
         # root, hiding anything positioned outside it).
         controls=[NavigationControl(), ScaleControl()],
     )
-
-    # Drop an anchor on each ONC site.
-    #
-    # `use_message_queue(False)` matters: with the queue on (the default), a call made
-    # before the widget renders is held in a plain Python list that `_on_rendered`
-    # flushes once and empties. Turned off, the call goes into `calls` instead -- a
-    # SYNCED traitlet, which the widget's JS replays on every `map.on("load")`. So
-    # these markers come back after a page reload, unlike the highlight and the view
-    # switch (both of which are post-render sends, and both of which document that
-    # they degrade to a sane default instead). Turned straight back on afterwards so
-    # nothing else changes behaviour.
-    map_widget.use_message_queue(False)
-    for _site in folger_sites["features"]:
-        _site_lon, _site_lat = _site["geometry"]["coordinates"]
-        map_widget.add_marker(Marker(
-            lng_lat=(_site_lon, _site_lat),
-            # anchor "center" puts the icon ON the coordinate. The default is
-            # "bottom" with a -14 px offset, which is right for a teardrop pin whose
-            # tip marks the spot and wrong for a symbol that has no tip.
-            options={"className": "folger-anchor", "anchor": "center"},
-        ))
-    map_widget.use_message_queue(True)
 
     # IMPORTANT: map_ui is created AND displayed in this same cell, and this
     # cell's own inputs never change after notebook load -- nothing here
@@ -799,34 +782,16 @@ def map(
         vertical-align: -1px;
         margin-right: 5px;
       }}
-      /* The Folger anchors. These elements are MapLibre's own Markers, which live in
-         the map's canvas container rather than in this HTML, so they are styled by
-         class from here. MapLibre still builds its default teardrop <svg> inside each
-         one -- hide that, and mask the box with the inline anchor instead.
-
-         Colour comes from a custom property, NOT from a rule in this block, because
-         `folger_marker_tint` has to be able to override it from a different cell and
-         a custom property sidesteps the specificity fight that would otherwise decide
-         it by document order. The fallback here is the real-time grey, so the anchors
-         are correct even before that cell has run once. */
-      .folger-anchor {{
-        width: 22px;
-        height: 22px;
-        pointer-events: none;
-        -webkit-mask: url("{_anchor_uri}") center / contain no-repeat;
-        mask: url("{_anchor_uri}") center / contain no-repeat;
-        background-color: var(--folger-anchor-colour, {_hist_cfg['SITE_COLOR_LIVE']});
-        filter: drop-shadow(0 0 1.6px rgba(255,255,255,0.95));
-      }}
-      .folger-anchor > svg {{ display: none; }}
+      /* Legend swatch for the two ONC sites. Deliberately neither of the map's two
+         site colours: those swap with the view, and this legend does not. */
       .glider-map-root .legend-site {{
         display: inline-block;
-        width: 11px;
-        height: 11px;
-        -webkit-mask: url("{_anchor_uri}") center / contain no-repeat;
-        mask: url("{_anchor_uri}") center / contain no-repeat;
-        background-color: #e8edf1;
-        vertical-align: -2px;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: #c8ced4;
+        border: 1.5px solid #fff;
+        vertical-align: -1px;
         margin-right: 5px;
       }}
       /* Bottom-right -- the one corner nothing else claims: .app-title is
@@ -885,7 +850,7 @@ def map(
 
 
 @app.cell(hide_code=True)
-def historical_toggle_visibility(map_widget, view_toggle):
+def historical_toggle_visibility(CONFIG_MAP, map_widget, view_toggle):
     # Switch the view by flipping layer visibility, never by rebuilding the map.
     #
     # Same discipline as `glider_highlight`, and for the same reason: `map` builds
@@ -902,37 +867,26 @@ def historical_toggle_visibility(map_widget, view_toggle):
     # where the toggle is sitting. That degrades to "shows the live view", never to a
     # blank or wrong map, which is the right way round.
     #
-    # Folger sites are deliberately absent from this list: they are fixed reference
-    # points that belong in both views.
+    # The Folger sites are deliberately absent from the visibility switch: they are
+    # fixed reference points that belong in both views. They do change colour with the
+    # view, though -- greyed out over the live view, where a reporting glider is the
+    # subject, and black over the historical one, where the moorings are the only
+    # continuously-present instruments on the map. That is a paint property, pushed
+    # exactly like the glider highlight, and for the same reason: the app's own CSS
+    # cannot reach inside the map (marimo renders its plugins into a shadow root), so
+    # anything drawn on the map has to be coloured by MapLibre itself.
     _historical = view_toggle.value == "Historical"
 
     map_widget.set_visibility("historical-points", _historical)
     map_widget.set_visibility("glider-positions", not _historical)
+    map_widget.set_paint_property(
+        "folger-sites", "circle-color",
+        CONFIG_MAP["HISTORICAL"]["SITE_COLOR_HISTORICAL"] if _historical
+        else CONFIG_MAP["HISTORICAL"]["SITE_COLOR_LIVE"],
+    )
 
     historical_view = _historical
     return (historical_view,)
-
-
-@app.cell(hide_code=True)
-def folger_marker_tint(CONFIG_MAP, historical_view, mo):
-    # Recolour the Folger anchors when the view changes: greyed out over the live
-    # view, black over the historical one.
-    #
-    # This is a stylesheet rather than a call on `map_widget`, because the anchors are
-    # DOM markers and MapLibre has no paint property for them -- `set_paint_property`
-    # only reaches layers in the style. Setting a custom property on :root rather than
-    # a rule on `.folger-anchor` keeps this out of a specificity fight with the base
-    # rule in `map`'s own <style>, which would otherwise be settled by whichever cell
-    # happens to render later.
-    #
-    # Emitting output from a cell that re-runs is normally the thing this app avoids
-    # (see `plot_overlay`), but this output is a <style> element: zero height, and it
-    # lands behind `.glider-map-root`, which is `position: fixed; inset: 0`. It cannot
-    # push the map around because it is not in the map's layout flow at all.
-    _site_colour = (CONFIG_MAP["HISTORICAL"]["SITE_COLOR_HISTORICAL"] if historical_view
-                    else CONFIG_MAP["HISTORICAL"]["SITE_COLOR_LIVE"])
-    mo.Html(f"<style>:root {{ --folger-anchor-colour: {_site_colour}; }}</style>")
-    return
 
 
 @app.cell(hide_code=True)

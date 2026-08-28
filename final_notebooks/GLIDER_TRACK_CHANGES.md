@@ -168,35 +168,31 @@ surfacings by a shallow-depth cut was measured instead, and rejected: on
 — not even monotonic in the threshold, because a deeper cut merges adjacent events. A
 knob that quietly changes what the map claims is the thing points were chosen to avoid.
 
-## 5. Folger sites are anchors, greyed live and black historical (2026-08-28)
+## 5. Folger sites are greyed live, black historical (2026-08-28)
 
-The two ONC sites are moored platforms, so they are drawn as anchors rather than dots,
-and they are painted to match the view they sit over: grey (`#9aa3ab`) over the real-time
+The two ONC sites now change colour with the view: grey (`#9aa3ab`) over the real-time
 view, where a reporting glider is the subject, and black (`#0b0b0b`) over the historical
-one, where the moorings are the only continuously-present instruments on the map.
+one, where the moorings are the only continuously-present instruments on the map. It is a
+`circle-color` paint property, pushed from `historical_toggle_visibility` exactly like the
+glider highlight.
 
-There is no way to get an image into this map through a layer. A symbol layer needs
-either `glyphs` (text) or `sprite` (icons) in the style, and both are URLs to files this
-app has nowhere to serve from. The text route was checked rather than assumed: the anchor
-character is U+2693 = 9875, and the only glyph server reachable from here
-(`tiles.openfreemap.org`) carries two font stacks, neither of which has that codepoint —
-54 glyphs in the 9728–9983 range, no 9875. A missing glyph draws nothing, silently.
+They were briefly drawn as anchor-shaped DOM markers instead. That failed in the browser
+and is worth recording, because it rules out a whole class of ideas here.
 
-So the anchors are real MapLibre `Marker`s — DOM elements — carrying a `className`, and
-the app's own CSS masks that box with an inline SVG anchor. No font, no sprite, no
-network: the icon travels inside the page. `pointer-events: none` keeps them from
-swallowing clicks meant for the map, and the per-view colour is a `:root` custom property
-that a separate `folger_marker_tint` cell rewrites, so it never fights the base rule on
-specificity.
+**The app's own CSS cannot reach anything inside the map widget.** marimo renders its UI
+plugins into a shadow root, so a `.folger-anchor` rule in the `map` cell's `<style>` never
+matched the marker elements MapLibre creates inside that root — not the mask, not the
+colour, not the rule hiding MapLibre's default pin. The markers rendered as MapLibre's own
+blue teardrops in both views. The Python side was correct and the export looked right;
+only a real browser showed it.
 
-**Worth knowing for anything else built on this widget:** those markers are added with
-`use_message_queue(False)`, which puts them in the widget's `calls` **traitlet** — synced
-state, which the widget's JS replays on every `map.on("load")`. That is a different path
-from `set_paint_property`/`set_visibility`, which are post-render sends and are lost on
-reload. It is also, therefore, a possible fix for the selection-highlight and view-switch
-state not surviving a reload; see "Still open".
-
----
+So anything drawn on this map has to be coloured by MapLibre itself — layer paint
+properties, or a Marker's own `color` option. And an *icon* is out of reach separately: a
+symbol layer needs `glyphs` (text) or `sprite` (icons) in the style, both URLs to files
+this app has nowhere to serve from, and the anchor character U+2693 = 9875 is absent from
+the only glyph server reachable from here (`tiles.openfreemap.org` carries two font
+stacks; 54 glyphs in the 9728–9983 range, no 9875). A missing glyph draws nothing at all,
+silently.
 
 ---
 
@@ -243,9 +239,10 @@ Found during review, deliberately not addressed here:
    keyed on `["deployment", "time", "depth"]` and cannot catch a cross-deployment duplicate.
    Affects anything reading that archive, not just this app.
 
-6. **Highlight and view-switch state could survive a page reload.** Both use post-render
-   sends, which are not replayed. The Folger anchors showed the other path works: calls
-   made before render with `use_message_queue(False)` land in the synced `calls` trait and
-   the front-end replays them on every load. Reusing that for the highlight would mean
-   rewriting the whole `calls` list on each change rather than appending, so it is not a
-   one-liner, and it was left alone here.
+6. **Highlight, view switch and site colour do not survive a page reload.** All three are
+   post-render sends, which the widget does not replay. There is another path — calls made
+   before render with `use_message_queue(False)` land in the synced `calls` trait, which
+   the front-end replays on every `map.on("load")` — but using it for state that *changes*
+   would mean rewriting the whole `calls` list on each change rather than appending. Not a
+   one-liner, and left alone. All three degrade to the baked-in default, which is the
+   real-time view, so a reload lands somewhere coherent.
