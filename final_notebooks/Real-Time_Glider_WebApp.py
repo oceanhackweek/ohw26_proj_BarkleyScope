@@ -132,12 +132,26 @@ def config():
             "VARIABLE_LABEL": "Temperature (°C)",
             "COLOR_SCALE": "Thermal",
             "LINE_COLOR": "#37474f",      # every track that is NOT the current selection.
-            "SELECTED_COLOR": "#f4a261",  # the track you clicked. Applied by the
+            "SELECTED_COLOR": "#e5308f",  # the track you clicked. Applied by the
                                            # `glider_highlight` cell through a data-driven
                                            # paint expression keyed on each feature's own
                                            # "deployment" property, so selecting never
                                            # rebuilds the map (see that cell, and `map`'s
                                            # note about never re-running).
+                                           #
+                                           # Magenta, not the orange it used to be. That
+                                           # orange cleared only 1.20:1 against the Esri
+                                           # basemap's own water (#a8c9e8), so a selected
+                                           # track barely separated from the sea it was
+                                           # drawn on; this clears 2.37:1, the same bar
+                                           # the historical ramp was built to. It is also
+                                           # a different hue from that ramp, which
+                                           # matters in the legend, where the live and
+                                           # historical swatches sit two lines apart.
+            "HEAD_RADIUS": 7,             # the newest fix of each deployment, drawn bigger
+                                           # and white-ringed so the leading end of a track
+                                           # is obvious -- with the trail behind it, that
+                                           # is what shows which way the glider is going.
             "DEPTH_POSITIVE_DOWN": True,
         },
         "HISTORICAL": {
@@ -207,7 +221,10 @@ def about_note(mo, sst_meta):
       to the shared archive columns, and picking surfacings by a shallow-depth cut swings between 4
       and 10 points a day depending on where the cut lands.
 
-      Click anywhere on a deployment to select it: all of its points turn orange and a 3D curtain
+      The newest fix of each deployment is drawn bigger, with a white ring: that is where the glider
+      is now, and the trail behind it is the direction it came from.
+
+      Click anywhere on a deployment to select it: all of its points turn magenta and a 3D curtain
       plot of that deployment opens in the sidebar. Data is real-time and **not calibrated** -- only
       a gross-range screen has been applied.
 
@@ -498,6 +515,39 @@ def map(
     ]
     _glider_points_collection = {"type": "FeatureCollection", "features": _glider_point_features}
 
+    # --- The newest fix of each deployment ---
+    # Drawn bigger and white-ringed, on top of the trail. A track of identical dots says
+    # where a glider has been but not which end is now; this marks the leading end, and
+    # the trail behind it gives the direction.
+    #
+    # A circle layer rather than a DOM Marker, though a marker's pin shape would read as
+    # "here" more literally. Markers cannot be hidden per view -- they are not layers, so
+    # `set_visibility` does not reach them -- and a live glider's current position would
+    # then sit on the historical map too, where it means nothing. This layer switches off
+    # with the rest of the live view.
+    #
+    # An "X" was the other idea and is not available: MapLibre can only draw a text
+    # symbol from a `glyphs` endpoint, and the one font server reachable from here
+    # (tiles.openfreemap.org) returns no Access-Control-Allow-Origin header, so a browser
+    # would refuse the fetch even though the glyph itself is there.
+    _head_features = [
+        {
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [float(_rec["df"]["Longitude"].iloc[_i]),
+                                float(_rec["df"]["Latitude"].iloc[_i])],
+            },
+            "properties": {"deployment": _rec["deployment"], "glider": _rec["glider"]},
+        }
+        for _rec in glider_records
+        # By TIME, not by row order: the loader sorts, but this should not silently
+        # depend on that -- picking the wrong row would put "the glider is here now" in
+        # the wrong place, which is the one error this marker exists to prevent.
+        for _i in [int(_rec["df"]["Time"].to_numpy().argmax())]
+    ]
+    _glider_head_collection = {"type": "FeatureCollection", "features": _head_features}
+
     # Selection highlight, as a data-driven paint expression rather than a rebuild.
     # MapLibre evaluates this per feature against the "deployment" property every feature
     # already carries, so switching the highlight is a one-property update pushed from
@@ -594,6 +644,20 @@ def map(
         },
     )
 
+    _glider_head_layer = Layer(
+        id="glider-head",
+        type=LayerType.CIRCLE,
+        source="glider-head",
+        paint={
+            "circle-radius": CONFIG_MAP["GLIDER"]["HEAD_RADIUS"],
+            # Same expression as the trail, so the newest fix is highlighted along with
+            # its own deployment rather than becoming a third colour to decode.
+            "circle-color": _highlight_expr(),
+            "circle-stroke-width": 2.5,
+            "circle-stroke-color": "#ffffff",
+        },
+    )
+
     # --- Climatology sites: La Perouse Bank and the five Barkley Canyon moorings ---
     # Historical view only, so the baked visibility is "none" and the colour is the
     # historical one -- unlike the Folger pair, these never appear over the live view
@@ -624,11 +688,12 @@ def map(
     # of both.
     _basemap_style = construct_basemap_style(
         layers=[_esri_layer, _sst_fill, _historical_layer, _glider_point_layer,
-                _clim_layer, _folger_layer],
+                _glider_head_layer, _clim_layer, _folger_layer],
         sources={
             "esri-ocean": _esri_source.to_dict(),
             "sst-src": GeoJSONSource(data=sst_layer).to_dict(),
             "glider-positions": GeoJSONSource(data=_glider_points_collection).to_dict(),
+            "glider-head": GeoJSONSource(data=_glider_head_collection).to_dict(),
             "historical-points": GeoJSONSource(data=historical_tracks).to_dict(),
             "folger-sites": GeoJSONSource(data=folger_sites).to_dict(),
             "climatology-sites": GeoJSONSource(data=climatology_layer_sites).to_dict(),
@@ -946,7 +1011,8 @@ def map(
         <div class="legend-row">
           <span class="legend-key"><span class="legend-dot legend-live"></span></span>
           <span><b>Real-time</b> glider<br>
-            <span class="legend-sub">positions, last {_active_days_label}</span></span>
+            <span class="legend-sub">positions, last {_active_days_label}<br>
+              ringed dot = newest fix</span></span>
         </div>
         <div class="legend-row">
           <span class="legend-key"><span class="legend-dot legend-historical"></span></span>
@@ -1016,6 +1082,7 @@ def historical_toggle_visibility(CONFIG_MAP, map_widget, view_toggle):
     map_widget.set_visibility("historical-points", _historical)
     map_widget.set_visibility("climatology-sites", _historical)
     map_widget.set_visibility("glider-positions", not _historical)
+    map_widget.set_visibility("glider-head", not _historical)
     map_widget.set_paint_property(
         "folger-sites", "circle-color",
         CONFIG_MAP["HISTORICAL"]["SITE_COLOR_HISTORICAL"] if _historical
@@ -1203,6 +1270,7 @@ def glider_highlight(
     _selected = selected_glider_record["deployment"] if selected_glider_record else ""
     _expression = glider_highlight_expr(_selected)
     map_widget.set_paint_property("glider-positions", "circle-color", _expression)
+    map_widget.set_paint_property("glider-head", "circle-color", _expression)
     return
 
 

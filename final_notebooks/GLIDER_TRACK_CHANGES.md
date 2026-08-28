@@ -77,11 +77,17 @@ active_days=7   dfo-eva035-20260826   2,273 obs   08-21 04:36 .. 08-27 16:39
                 dfo-hal1002-20260817  2,704 obs   08-20 20:43 .. 08-22 18:57
 ```
 
-## 2. The selected track turns orange
+## 2. The selected track is highlighted
 
 Every track was the same orange, so with two gliders in the water nothing indicated which
 one the sidebar curtain plot belonged to. Unselected tracks are now slate
-(`LINE_COLOR: "#37474f"`); the selection keeps the orange (`SELECTED_COLOR: "#f4a261"`).
+(`LINE_COLOR: "#37474f"`) and the selection is magenta (`SELECTED_COLOR: "#e5308f"`).
+
+The selection colour was that same orange until 2026-08-28, when it was measured against
+the basemap it is drawn on: `#f4a261` clears only **1.20:1** against the Esri tiles' own
+water (`#a8c9e8`), so a selected track barely separated from the sea. `#e5308f` clears
+**2.37:1** — the bar the historical ramp was built to — and is a different hue from that
+ramp, which matters in the legend where the two swatches sit two lines apart.
 
 The mechanism matters because **the `map` cell must never re-run** — rebuilding it forces a
 new widget into a live browser session and breaks the mount. So the highlight is a
