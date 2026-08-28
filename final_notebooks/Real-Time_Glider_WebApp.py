@@ -980,13 +980,29 @@ def map(
         margin: 4px 0 3px 30px;
         background: linear-gradient(to right, {_ramp_css});
       }}
+      /* The credit line is the one part of the legend that is NOT click-through: the
+         panel sets pointer-events: none so it never steals a click meant for the map,
+         and this re-enables it for the links only. Without that the links render but
+         cannot be clicked, which is worse than not linking them at all. */
       .glider-map-root .legend-credit {{
-        margin-top: 8px;
-        padding-top: 6px;
+        margin-top: 9px;
+        padding-top: 7px;
         border-top: 1px solid rgba(255,255,255,0.18);
         color: #aab3bb;
-        font-size: 10px;
-        line-height: 1.35;
+        font-size: 11.5px;
+        line-height: 1.45;
+        pointer-events: auto;
+        overflow-wrap: break-word;
+      }}
+      .glider-map-root .legend-credit a {{
+        color: #d6e4f0;
+        text-decoration: none;
+        border-bottom: 1px dotted rgba(214, 228, 240, 0.5);
+        white-space: nowrap;
+      }}
+      .glider-map-root .legend-credit a:hover {{
+        color: #ffffff;
+        border-bottom-color: #ffffff;
       }}
       .glider-map-root .legend-ends {{
         display: flex;
@@ -1077,8 +1093,15 @@ def map(
             <span class="legend-sub">{_site_count} sites — click one in Historical</span></span>
         </div>
         <div class="legend-credit">
-          Data: Ocean Networks Canada · C-PROOF · DFO/MEDS · NOAA CoastWatch —
-          citations and access points under <b>i</b>
+          Data:
+          <a href="https://data.oceannetworks.ca" target="_blank" rel="noopener">ONC</a> ·
+          <a href="https://cproof.uvic.ca/gliderdata/deployments/" target="_blank"
+             rel="noopener">C-PROOF</a> ·
+          <a href="https://www.meds-sdmm.dfo-mpo.gc.ca/isdm-gdsi/waves-vagues/index-eng.html"
+             target="_blank" rel="noopener">DFO</a> ·
+          <a href="https://coastwatch.pfeg.noaa.gov/erddap" target="_blank"
+             rel="noopener">NOAA</a><br>
+          full citations under <b>i</b>
         </div>
       </div>
       <div class="sst-legend">
