@@ -1,12 +1,13 @@
 # Glider track changes — what the map draws, and what it refuses to draw
 
-Three changes to how `Real-Time_Glider_WebApp.py` represents glider tracks, plus the
-blank-page problem that used to block testing them — now diagnosed and fixed. `REALTIME_WEBAPP_SUMMARY.md` describes
+Five changes to how `Real-Time_Glider_WebApp.py` represents glider tracks and the fixed
+sites beside them, plus the blank-page problem that used to block testing them — now
+diagnosed and fixed. `REALTIME_WEBAPP_SUMMARY.md` describes
 the app itself; this covers only what changed and why, with the measurements behind each
 decision.
 
-All three land in `glider_lib.load_active_gliders()` and the app's `map`/`glider_highlight`
-cells. Branch `shannon`, commits `ddb009c` and `73947dc`.
+The first three land in `glider_lib.load_active_gliders()` and the app's
+`map`/`glider_highlight` cells; the last two are in the app's `map` cell alone.
 
 ---
 
@@ -138,6 +139,65 @@ observation and is deliberately kept.
 Every one of the 3,897 observations it contributes to a 30-day window *is* the frozen fix,
 so there is nothing left to draw.
 
+## 4. The live deployment is drawn as points, not a line (2026-08-28)
+
+Same reasoning as the historical layer: a line has to decide what happened between two
+fixes, and nothing in this product says. The live frame is 30-second observations whose
+positions are dead-reckoned between GPS fixes — roughly 20 m apart — so at map zoom the
+points still read as a continuous trail, and zooming in shows what was actually sampled
+instead of a drawn-in path.
+
+Retiring the line also retired `MAX_GAP_DEG`. It existed only to stop a LineString
+drawing a straight connector across a real gap — a line that looked clickable but had no
+data near it. Points cannot draw a connector, so there is no threshold left to tune.
+
+**These are not surfacings.** The live timeseries does carry `profile_index`, but
+`snapshot()` returns exactly `cproof_glider.COLUMNS` — an invariant it shares with the
+archive path — so the frame has no profile key by the time the app sees it. Picking
+surfacings by a shallow-depth cut was measured instead, and rejected: on
+`dfo-eva035-20260826`'s last day it gives
+
+| cut | surfacing events |
+|---|---|
+| ≤ 1 m | 4 |
+| ≤ 2 m | 8 |
+| ≤ 3 m | 9 |
+| ≤ 5 m | 10 |
+| ≤ 10 m | 9 |
+
+— not even monotonic in the threshold, because a deeper cut merges adjacent events. A
+knob that quietly changes what the map claims is the thing points were chosen to avoid.
+
+## 5. Folger sites are anchors, greyed live and black historical (2026-08-28)
+
+The two ONC sites are moored platforms, so they are drawn as anchors rather than dots,
+and they are painted to match the view they sit over: grey (`#9aa3ab`) over the real-time
+view, where a reporting glider is the subject, and black (`#0b0b0b`) over the historical
+one, where the moorings are the only continuously-present instruments on the map.
+
+There is no way to get an image into this map through a layer. A symbol layer needs
+either `glyphs` (text) or `sprite` (icons) in the style, and both are URLs to files this
+app has nowhere to serve from. The text route was checked rather than assumed: the anchor
+character is U+2693 = 9875, and the only glyph server reachable from here
+(`tiles.openfreemap.org`) carries two font stacks, neither of which has that codepoint —
+54 glyphs in the 9728–9983 range, no 9875. A missing glyph draws nothing, silently.
+
+So the anchors are real MapLibre `Marker`s — DOM elements — carrying a `className`, and
+the app's own CSS masks that box with an inline SVG anchor. No font, no sprite, no
+network: the icon travels inside the page. `pointer-events: none` keeps them from
+swallowing clicks meant for the map, and the per-view colour is a `:root` custom property
+that a separate `folger_marker_tint` cell rewrites, so it never fights the base rule on
+specificity.
+
+**Worth knowing for anything else built on this widget:** those markers are added with
+`use_message_queue(False)`, which puts them in the widget's `calls` **traitlet** — synced
+state, which the widget's JS replays on every `map.on("load")`. That is a different path
+from `set_paint_property`/`set_visibility`, which are post-render sends and are lost on
+reload. It is also, therefore, a possible fix for the selection-highlight and view-switch
+state not surviving a reload; see "Still open".
+
+---
+
 ---
 
 ## Verified
@@ -182,3 +242,10 @@ Found during review, deliberately not addressed here:
    duplicated between the two eva035 deployment IDs; the dedup in `data/cproof_glider.py` is
    keyed on `["deployment", "time", "depth"]` and cannot catch a cross-deployment duplicate.
    Affects anything reading that archive, not just this app.
+
+6. **Highlight and view-switch state could survive a page reload.** Both use post-render
+   sends, which are not replayed. The Folger anchors showed the other path works: calls
+   made before render with `use_message_queue(False)` land in the synced `calls` trait and
+   the front-end replays them on every load. Reusing that for the highlight would mean
+   rewriting the whole `calls` list on each change rather than appending, so it is not a
+   one-liner, and it was left alone here.
