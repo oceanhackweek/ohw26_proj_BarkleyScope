@@ -701,6 +701,7 @@ def map(
     _epoch_start = historical_tracks.get("epoch_start", "")
     _months = historical_tracks.get("months") or [""]
     _ramp_css = ", ".join(_hist_cfg["RAMP"])
+    _ramp_mid = _hist_cfg["RAMP"][len(_hist_cfg["RAMP"]) // 2]
     # The legend used to name the two Folger sites outright. With eight sites it names
     # the groups instead -- the panel has to stay small enough to leave visible in both
     # views, and the "i" popover carries the full list.
@@ -838,20 +839,38 @@ def map(
         left: 16px;
         bottom: 16px;
         z-index: 2;
-        background: rgba(10, 20, 30, 0.72);
-        color: #eaeaea;
-        padding: 10px 12px;
-        border-radius: 10px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.35);
-        font: 400 11.5px/1.45 system-ui, sans-serif;
-        max-width: 260px;
+        background: rgba(10, 20, 30, 0.78);
+        color: #f2f4f6;
+        padding: 14px 16px;
+        border-radius: 12px;
+        box-shadow: 0 2px 14px rgba(0,0,0,0.4);
+        font: 400 14px/1.5 system-ui, sans-serif;
+        max-width: 320px;
         pointer-events: none;
       }}
       .glider-map-root .map-legend b {{ font-weight: 600; }}
+      /* One row per entry: swatch column, then label. The swatch column is a fixed
+         width so the three labels line up whatever size the dots are. */
+      .glider-map-root .legend-row {{
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 7px 0;
+      }}
+      .glider-map-root .legend-key {{
+        flex: 0 0 20px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }}
+      .glider-map-root .legend-sub {{
+        color: #b9c2cb;
+        font-size: 12px;
+      }}
       .glider-map-root .legend-ramp {{
-        height: 9px;
+        height: 10px;
         border-radius: 3px;
-        margin: 5px 0 3px;
+        margin: 4px 0 3px 30px;
         background: linear-gradient(to right, {_ramp_css});
       }}
       .glider-map-root .legend-credit {{
@@ -865,30 +884,35 @@ def map(
       .glider-map-root .legend-ends {{
         display: flex;
         justify-content: space-between;
+        margin-left: 30px;
         color: #b9c2cb;
-        font-size: 10.5px;
+        font-size: 11.5px;
+      }}
+      /* The three swatches are sized in the same order the map draws them -- historical
+         profile positions smallest, live glider positions bigger, moorings biggest --
+         so the legend reads as a size key as well as a colour key. */
+      .glider-map-root .legend-dot {{
+        display: inline-block;
+        border-radius: 50%;
+        border: 1px solid #fff;
+      }}
+      .glider-map-root .legend-historical {{
+        width: 8px;
+        height: 8px;
+        background: {_ramp_mid};
       }}
       .glider-map-root .legend-live {{
-        display: inline-block;
-        width: 9px;
-        height: 9px;
-        border-radius: 50%;
+        width: 11px;
+        height: 11px;
         background: {_live_colour};
-        border: 1px solid #fff;
-        vertical-align: -1px;
-        margin-right: 5px;
       }}
-      /* Legend swatch for the two ONC sites. Deliberately neither of the map's two
-         site colours: those swap with the view, and this legend does not. */
+      /* Deliberately neither of the map's two site colours: those swap with the view,
+         and this legend does not. */
       .glider-map-root .legend-site {{
-        display: inline-block;
-        width: 9px;
-        height: 9px;
-        border-radius: 50%;
+        width: 17px;
+        height: 17px;
         background: #c8ced4;
-        border: 1.5px solid #fff;
-        vertical-align: -1px;
-        margin-right: 5px;
+        border-width: 2px;
       }}
       /* Bottom-right -- the one corner nothing else claims: .app-title is
          top-left, .about-toggle is right-CENTER (deliberately, to clear
@@ -919,12 +943,22 @@ def map(
       <div class="app-title">Glider Map -- Barkley Sound</div>
       <div class="view-switch">{view_toggle}</div>
       <div class="map-legend">
-        <div><span class="legend-live"></span><b>Real-time</b> — glider positions, last {_active_days_label}</div>
-        <div style="margin-top:7px"><b>Historical</b> — profile positions by deployment date</div>
+        <div class="legend-row">
+          <span class="legend-key"><span class="legend-dot legend-live"></span></span>
+          <span><b>Real-time</b> glider<br>
+            <span class="legend-sub">positions, last {_active_days_label}</span></span>
+        </div>
+        <div class="legend-row">
+          <span class="legend-key"><span class="legend-dot legend-historical"></span></span>
+          <span><b>Historical</b> glider<br>
+            <span class="legend-sub">profile positions by date</span></span>
+        </div>
         <div class="legend-ramp"></div>
         <div class="legend-ends"><span>{_months[0]}</span><span>{_months[-1]}</span></div>
-        <div style="margin-top:7px">
-          <span class="legend-site"></span>{_site_count} instrument sites — click one in Historical
+        <div class="legend-row">
+          <span class="legend-key"><span class="legend-dot legend-site"></span></span>
+          <span><b>Stationary instruments</b><br>
+            <span class="legend-sub">{_site_count} sites — click one in Historical</span></span>
         </div>
         <div class="legend-credit">
           Data: Ocean Networks Canada · C-PROOF · DFO/MEDS · NOAA CoastWatch —
@@ -1080,12 +1114,61 @@ def site_panel(mo, selected_site):
 
         _header = mo.md(f"### {selected_site['name']}\n{_where}{_span}")
 
+        # The explanation sits behind a "?" in the plot's top-right corner rather than
+        # under it. It is the same few sentences every time, so after the first read it
+        # is just something between the reader and the next plot -- but a climatology
+        # with sd bands is not self-explanatory either, so it has to be reachable.
+        #
+        # Pure CSS: :hover for a mouse, :focus-within (with tabindex) so it also opens
+        # from the keyboard and on a touch screen, where there is no hover at all. No
+        # <script>, which marimo strips from cell HTML anyway.
+        _help = (
+            "Day-of-year mean with 1 and 2 sd bands, pooled over &plusmn;7 days across "
+            "all years of the record, with the current year overlaid. Only QAQC-passed "
+            "values are used, so gaps are shown as gaps. Built by "
+            "<code>onc_climatology.py</code>; screening rules and caveats are in "
+            "<code>contributor_folders/Dwight/CLIMATOLOGY.md</code>."
+        )
+        _style = """
+        <style>
+          .clim-figure { position: relative; line-height: 0; }
+          .clim-figure img { width: 100%; height: auto; border-radius: 6px;
+                              background: #fff; display: block; }
+          .clim-help {
+            position: absolute; top: 10px; right: 10px;
+            width: 22px; height: 22px; border-radius: 50%;
+            background: rgba(10, 20, 30, 0.78); color: #fff;
+            font: 600 13px/22px system-ui, sans-serif; text-align: center;
+            cursor: help; user-select: none; outline: none;
+          }
+          .clim-help:hover, .clim-help:focus { background: rgba(10, 20, 30, 0.95); }
+          .clim-help .clim-help-body {
+            display: none;
+            position: absolute; top: 28px; right: 0; width: 260px;
+            padding: 10px 12px; border-radius: 8px;
+            background: rgba(10, 20, 30, 0.96); color: #eaeaea;
+            font: 400 12px/1.45 system-ui, sans-serif; text-align: left;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.45); cursor: default; z-index: 5;
+          }
+          .clim-help .clim-help-body code {
+            background: rgba(255,255,255,0.12); padding: 1px 3px; border-radius: 3px;
+          }
+          .clim-help:hover .clim-help-body,
+          .clim-help:focus-within .clim-help-body { display: block; }
+        </style>
+        """
+
         if _path is not None and _path.exists():
             _uri = "data:image/png;base64," + base64.b64encode(_path.read_bytes()).decode()
             _body = mo.Html(
-                f'<img src="{_uri}" alt="Day-of-year temperature climatology for '
-                f'{selected_site["name"]}" style="width:100%;height:auto;'
-                'border-radius:6px;background:#fff" />'
+                _style
+                + '<div class="clim-figure">'
+                + f'<img src="{_uri}" alt="Day-of-year temperature climatology for '
+                + f'{selected_site["name"]}" />'
+                + '<span class="clim-help" tabindex="0" role="note" '
+                + 'aria-label="About this plot">?'
+                + f'<span class="clim-help-body">{_help}</span></span>'
+                + "</div>"
             )
         else:
             _body = mo.md(
@@ -1094,15 +1177,7 @@ def site_panel(mo, selected_site):
                 "--outdir climatology/`."
             )
 
-        # Day-of-year climatology, not a live reading -- worth saying on the panel
-        # itself, since the rest of this app is about what is happening now.
-        _note = mo.md(
-            "Day-of-year mean with 1 and 2 sd bands, pooled over ±7 days across all "
-            "years of the record, with the current year overlaid. Built by "
-            "`onc_climatology.py`; see `contributor_folders/Dwight/CLIMATOLOGY.md` "
-            "for the screening and its caveats."
-        )
-        site_plot = mo.vstack([_header, _body, _note])
+        site_plot = mo.vstack([_header, _body])
     return (site_plot,)
 
 
@@ -1204,13 +1279,18 @@ def plot_overlay(
                 glider_decimation_slider, glider_time_slider, time_range_label,
             ])
     else:
-        _content = mo.md(
-            "_Click a glider track to see a plot here._\n\n"
-            "_In the historical view, click an instrument site for its temperature "
-            "climatology._"
-        )
+        # No placeholder panel. An empty sidebar is 480 px of dark chrome over the map,
+        # crowding the legend to say nothing, so nothing is rendered at all until
+        # something is selected and the map gets that width back.
+        _content = None
 
-    mo.sidebar(_content, width="480px")
+    # A trailing conditional EXPRESSION, not an early return. marimo compiles a cell's
+    # body as a module, so a `return` anywhere but the end of the file's own function
+    # wrapper is a SyntaxError ("'return' outside function") -- and it fails at compile
+    # time, taking every cell down with it. This form keeps the sidebar as the last
+    # expression, which is what marimo renders, and evaluates to None when there is
+    # nothing to show, which renders nothing.
+    mo.sidebar(_content, width="480px") if _visible else None
     return
 
 
