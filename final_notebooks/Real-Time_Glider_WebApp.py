@@ -1271,11 +1271,27 @@ def plot_overlay(
         # The site panel carries no sliders: they scope a glider deployment's own time
         # axis, and a day-of-year climatology has neither a live window nor a point
         # density to thin. `click_plot` guarantees only one of the two is ever set.
+        # Hide the map legend while a panel is open. The panel docks left, over the
+        # corner the legend sits in, and two stacked boxes of small text there is
+        # exactly the crowding this corner was just cleaned up to avoid.
+        #
+        # The rule ships INSIDE the panel rather than from a cell of its own, which
+        # makes it self-cleaning: a <style> element applies for as long as it is in the
+        # document, and this one is unmounted with the panel it came in. No state to
+        # keep in sync, and no way for the legend to stay hidden after the panel closes.
+        #
+        # It can reach the legend because both are ordinary light DOM -- the map cell's
+        # HTML output, not the map widget. Anything inside the widget itself is in a
+        # shadow root that page CSS cannot enter, which is what defeated the earlier
+        # attempt at styling the Folger markers; the legend is not in there.
+        _hide_legend = mo.Html(
+            "<style>.glider-map-root .map-legend { display: none; }</style>"
+        )
         if site_plot is not None:
-            _content = mo.vstack([_close_button, site_plot])
+            _content = mo.vstack([_hide_legend, _close_button, site_plot])
         else:
             _content = mo.vstack([
-                _close_button, selection_plot,
+                _hide_legend, _close_button, selection_plot,
                 glider_decimation_slider, glider_time_slider, time_range_label,
             ])
     else:
