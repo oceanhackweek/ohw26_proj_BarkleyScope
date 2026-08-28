@@ -31,6 +31,7 @@ hub server, not public. See `data/WORKING_LOCALLY.md`.
 | `glider_lib.py` | copy of the team's helper, so this folder is self-contained |
 | `glider_frozen.parquet` | the glider data, frozen 2026-08-28 — see "Frozen data" |
 | `serve_folger_app.sh` | starts the app on 2719 |
+| `HOW_TO_OPEN_APP.md` | **start here** — exact steps to run it, on the hub or on your own machine |
 | `GUIDE.md` | **how to read the map** — every dot, both views, what the figure does and does not show |
 | `README.md` | this file |
 
