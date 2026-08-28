@@ -122,12 +122,13 @@ discard eight years of Pinnacle to make the figure tidier.
 | `make_comparison.py` | the driver — reads three sources, builds the figure |
 | `export_compare_points.py` | writes `../folger_compare_points.geojson`, the map layer |
 | `preview_compare_points.py` | draws the same four panels **from the GeoJSON alone** |
-| `INTEGRATING_THE_POINT_LAYER.md` | for whoever wires the marker into the map app |
+| `INTEGRATING_THE_POINT_LAYER.md` | for whoever wires the figure into the map app |
 | `README.md` | this file |
 | `.gitignore` | keeps the two figures below out of the history |
 
-`../folger_compare_points.geojson` is committed too — the app reads it from `main`, so
-nobody should have to run this folder to get it.
+`../folger_compare_points.geojson` is committed too, so nobody should have to run this
+folder to get it. Note it is on this branch only — neither it nor this folder is on
+`main` yet.
 
 **Not committed** — the two figures. They are *not* in a fresh clone; run the scripts to
 get them. Both rebuild offline in seconds from files already in the repo, and a ~450 kB
@@ -154,9 +155,10 @@ of that — it imports **nothing from this repository**, only `json` and `matplo
 it runs, the layer is self-sufficient.
 
 **`INTEGRATING_THE_POINT_LAYER.md` is the hand-off document.** It follows
-`../sst/INTEGRATING_THE_LAYER.md`'s structure, and flags the one part that is not a
-simple addition: `click_plot` cannot currently tell layers apart, so making the marker
-clickable means editing a cell someone else owns.
+`../sst/INTEGRATING_THE_LAYER.md`'s structure. It used to flag the click handling as the
+risky part; PR #16 removed that problem — `click_plot` now hit-tests point sites and
+already resolves the two Folger markers, so this needs **no new layer and no edit to the
+hit-test**, only a branch in the panel cell.
 
 This layer **supersedes `../sst_barkley_points.geojson`** — same satellite fields, plus
 both stations. Integrate one or the other, not both.

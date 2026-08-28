@@ -302,13 +302,16 @@ the next layer should follow the same shape rather than rediscover it.
 
 **It is five cells. Four are new; one is a two-line edit to an existing cell.**
 
-| Cell | Lines | Does | Returns |
+| Cell | Line | Does | Returns |
 |---|---|---|---|
-| `sst_data` | ~185 | Reads the GeoJSON once, off `Path(__file__)` | `sst_layer`, `sst_meta` |
-| `sst_date_control` | ~202 | Defines **and displays** the date dropdown | `sst_date_picker` |
-| `map` | ~236 | Adds source + layer **at construction**; draws the legend | *(existing cell)* |
-| `sst_date_filter` | ~658 | Pushes date changes into the live map | — |
-| `about_note` | ~128 | Carries `source_caveat` into the About text | *(existing cell)* |
+| `sst_data` | 335 | Reads the GeoJSON once, off `Path(__file__)` | `sst_layer`, `sst_meta` |
+| `sst_date_control` | 352 | Defines **and displays** the date dropdown | `sst_date_picker` |
+| `map` | 386 | Adds source + layer **at construction**; draws the legend | *(existing cell)* |
+| `sst_date_filter` | 1276 | Pushes date changes into the live map | — |
+| `about_note` | 210 | Carries `source_caveat` into the About text | *(existing cell)* |
+
+Line numbers are the cell's `def` as of `9139495`; the app is edited often, so find the
+cells by name rather than trusting the number.
 
 The split is not stylistic. It is forced by two properties of this app, and any layer with a
 control attached will be forced into the same five slots.

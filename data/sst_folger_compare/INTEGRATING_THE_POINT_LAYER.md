@@ -3,10 +3,11 @@ Authors: Anais Gentilhomme and Claude (Anthropic)
 Last modified: 2026-08-28
 -->
 
-# Adding the Folger comparison point to the map app
+# Adding the Folger comparison figure to the map app
 
-For whoever owns the app. One clickable marker at Folger Passage; clicking it opens a
-four-panel temperature figure. You need **one file**:
+For whoever owns the app. A four-panel temperature figure, opened by clicking the Folger
+markers **the map already has** — this adds no marker and no layer of its own, and needs
+no change to the click hit-test. You need **one file**:
 
 ```
 data/folger_compare_points.geojson     the marker and all three series     98 kB
@@ -74,9 +75,9 @@ Renderers ignore it. It is there so you never guess at styling or captions:
 
 ---
 
-## The marker
+## Getting it in
 
-### 1. Load it
+### 1. Load it — in its own data cell
 
 ```python
 import json
@@ -86,90 +87,103 @@ from pathlib import Path
 # /home/jovyan, so a bare Path("data/...") resolves wrong. Same reason glider_lib.py
 # and the sst_data cell both do this.
 _path = Path(__file__).resolve().parent.parent / "data" / "folger_compare_points.geojson"
-folger_layer = json.loads(_path.read_text())
-folger_meta = folger_layer["properties"]
-folger_feature = folger_layer["features"][0]
+_compare = json.loads(_path.read_text())
+folger_meta = _compare["properties"]                      # palette, captions, panel order
+folger_series = _compare["features"][0]["properties"]["series"]   # the three series
 ```
 
-### 2. Add one source and one layer
+Deliberately **not** named `folger_layer`: the `map` cell already has a `_folger_layer`,
+and that one is a maplibre `Layer` for the markers. These two things are unrelated and
+should not read as if they were.
 
-In the cell that builds the map style. **After the SST fill in the layer list** — the
-fill is opaque-ish and would bury a marker drawn under it.
+Note what is *not* bound here — `features[0]["geometry"]`. The geometry is real and
+correct, it is just redundant with markers the map already draws. See below.
 
-```python
-from maplibre.layer import Layer, LayerType
-from maplibre.sources import GeoJSONSource
+### 2. Do **not** add a source and a layer
 
-_folger_layer_spec = Layer(
-    id="folger-compare",
-    type=LayerType.CIRCLE,
-    source="folger-compare-src",
-    paint={"circle-radius": 7, "circle-color": "#ffffff",
-           "circle-stroke-width": 2, "circle-stroke-color": "#0b1a2b"},
-)
+**The app already draws Folger markers.** Since PR #16 the `map` cell builds
+`_folger_layer` (id and source both `folger-sites`) from `data/folger_sites.geojson`,
+putting **Folger Deep** and **Folger Pinnacle** on the map as their own dots. They sit
+0.006° apart, and this layer's marker is the midpoint *between* them — so adding it
+would draw a third dot on top of two dots describing the same place.
 
-_basemap_style = construct_basemap_style(
-    layers=[_esri_layer, _sst_fill, _glider_layer, _glider_point_layer,
-            _folger_layer_spec],                      # <-- last: on top of everything
-    sources={
-        "esri-ocean": _esri_source.to_dict(),
-        "sst-src": GeoJSONSource(data=sst_layer).to_dict(),
-        "glider-track": ...,
-        "glider-points": ...,
-        "folger-compare-src": GeoJSONSource(data=folger_layer).to_dict(),
-    },
-    name="esri-ocean-basemap",
-)
-```
+So: skip the source, skip the layer. Load the file for its `properties` and `series`,
+**ignore `features[0].geometry`**, and hang the figure off the markers already there.
+What is valuable here is the three-series payload and the figure drawn from it, not the
+point geometry.
 
-Baked in at construction, like everything else — `add_source()` / `add_layer()` after
-construction are transient comm messages that do not survive a page reload.
+If you do end up wanting a separate dot anyway, add it **last** in the layer list — the
+SST fill is opaque-ish and would bury anything under it — and note the current list is
+`[_esri_layer, _sst_fill, _historical_layer, _glider_point_layer, _glider_head_layer,
+_clim_layer, _folger_layer]`, with sources `esri-ocean`, `sst-src`, `glider-positions`,
+`glider-head`, `historical-points`, `folger-sites`, `climatology-sites`. Baked in at
+construction, like everything else — `add_source()` / `add_layer()` after construction
+are transient comm messages that do not survive a page reload.
 
 ---
 
-## The click — this is the part that needs care
+## The click — already solved; do not edit `click_plot`
 
-**`click_plot` currently cannot tell layers apart.** As written it takes
-`map_ui.value["clicked"]`, scans `glider_records` inside a **0.05° box**, and takes the
-**first deployment within tolerance**. It has no concept of which layer was hit.
+An earlier revision of this document argued that `click_plot` "cannot tell layers apart",
+and proposed adding a `folger_feature` argument and a 0.012° marker-first early return.
+**That is obsolete — do not follow it.** `click_plot` gained site hit-testing in PR #16
+and already does what this layer needs.
 
-0.05° is roughly 5.5 km. Any glider track passing within that of Folger Passage will
-win the click before the marker is ever considered. So this is not an additive change —
-it is a real edit to a cell smcclish and BLimer own. **Agree it with them first.**
-
-The minimal version is to test the marker *before* the glider scan and return early:
+What it does today (`final_notebooks/Real-Time_Glider_WebApp.py:1096`):
 
 ```python
-@app.cell(hide_code=True)
-def click_plot(glider_records, map_ui, set_plot_closed, folger_feature):
-    _clicked = (map_ui.value or {}).get("clicked") or {}
-    _click_lon, _click_lat = _clicked.get("lng"), _clicked.get("lat")
-    _TOLERANCE_DEG = 0.05
-
-    def _near(lon, lat, lon2, lat2, tol=_TOLERANCE_DEG):
-        return lon is not None and abs(lon - lon2) < tol and abs(lat - lat2) < tol
-
-    # Marker first: it is a single point and a much smaller target than a track that
-    # may cross the whole box. Tested at a tighter tolerance so it only wins an actual
-    # click on the dot, and checked before the glider scan so a track passing within
-    # 5 km of Folger cannot swallow it.
-    _folger_lon, _folger_lat = folger_feature["geometry"]["coordinates"]
-    folger_clicked = _near(_click_lon, _click_lat, _folger_lon, _folger_lat, tol=0.012)
-
-    selected_glider_record = None
-    if not folger_clicked:
-        for _rec in glider_records:
-            ...                                   # unchanged
+def click_plot(climatology_sites, glider_records, historical_view, map_ui,
+               set_plot_closed):
     ...
-    return selected_glider_record, folger_clicked
+    _TOLERANCE_DEG = 0.05        # tracks
+    _SITE_TOLERANCE_DEG = 0.03   # point sites, tighter
+    if not historical_view:
+        ...                      # first glider deployment within tolerance
+    elif _click_lon is not None:
+        ...                      # NEAREST climatology site within tolerance
+    return selected_glider_record, selected_site
 ```
 
-`0.012°` is about 1.3 km — comfortably larger than the drawn marker at any usable zoom,
-comfortably smaller than the glider tolerance it now pre-empts.
+It resolves overlapping point sites by **nearest-wins**, not first-wins, precisely
+because sites cluster — the reasoning the old draft was reaching for, already written
+down and already better. And `climatology_sites` includes the Folger pair (only the
+*layer* excludes them, because `folger_sites` draws them), so:
 
-If they would rather not touch that cell, the fallback is a **separate control** — a
-checkbox or a button in the sidebar that opens the figure — and no click handling at
-all. Less elegant, zero risk to their code, and it can ship first.
+> Clicking Folger Deep or Folger Pinnacle in the historical view **already** sets
+> `selected_site` to that site's `properties`, with `group == "folger"`.
+
+**Zero edits to the hit-test.** The negotiation the old draft called for is unnecessary.
+
+### Where the change actually goes
+
+`site_panel` (line 1153) — it takes `selected_site` and renders that site's climatology
+PNG, base64-embedded because marimo will not serve arbitrary repo files over HTTP. The
+comparison figure rides the same rail; the change is one additive branch:
+
+```python
+def site_panel(mo, selected_site, folger_meta, folger_series):
+    ...
+    if selected_site.get("group") == "folger":
+        # Both Folger dots answer with the same three-series comparison: it is about
+        # the pair plus the satellite cell over them, not about one depth.
+        _body = <the four-panel figure, as a data URI, same base64 trick>
+    else:
+        _body = <existing climatology PNG path>
+```
+
+Whether it replaces Dwight's per-site climatology for those two sites or sits beside it
+is a judgement call for whoever owns the panel — both plots exist and both are real
+(`pinnacle_climatology.png` and `deep_climatology.png` are both present).
+
+### Two consequences to know about
+
+- **Historical view only.** Site clicks live in the `elif historical_view` branch, so in
+  the live view there is no site selection at all and the figure is unreachable. If it
+  needs to be reachable in both, that *is* a change to `click_plot`, and that one does
+  need agreeing with smcclish.
+- **Both dots give the same figure.** Deep and Pinnacle are 0.006° apart, well inside the
+  0.03° tolerance, so nearest-wins picks whichever is closer — but since both map to the
+  same comparison figure, which one wins does not matter here.
 
 ---
 
@@ -286,6 +300,26 @@ two markers on top of each other at any useful zoom, telling two versions of one
 
 The older two-panel layer was never wired into the app, so there is nothing to remove —
 just don't add it as well.
+
+### ...and to `folger_sites.geojson` / `climatology_sites.geojson`
+
+Those two landed in PR #16 and are **not** superseded by this file; they do a different
+job and this document now depends on them.
+
+| File | Owns | Carries |
+|---|---|---|
+| `data/folger_sites.geojson` | the two dots on the map | position, name — no series |
+| `data/climatology_sites.geojson` | what a click resolves to | position, name, `group`, `climatology_png` |
+| `data/folger_compare_points.geojson` *(this)* | the figure's data | three full series, palette, captions |
+
+The split to keep straight: **they own the markers and the hit-test, this file owns the
+figure.** Nothing here should modify either of theirs.
+
+One inconsistency worth not tripping over: their depths for the pair are `25.0` and
+`98.0` m (the station nominals, and what the marker labels say); this file's `depth_m`
+are `23.0` and `96.5` (the sensor depths the ONC exports actually report). Both are
+right about different things. The series *labels* here use the nominals — "Folger
+Pinnacle (25 m)", "Folger Deep (98 m)" — so the figure agrees with the map.
 
 ---
 
