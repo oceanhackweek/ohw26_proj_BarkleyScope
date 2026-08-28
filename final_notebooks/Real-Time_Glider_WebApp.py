@@ -1368,13 +1368,20 @@ def plot_overlay(
         # something is selected and the map gets that width back.
         _content = None
 
+    # The climatology panel gets a wider dock than the glider one. The PNG is a fixed
+    # wide figure scaled to the panel width, so the panel width IS the plot size --
+    # 480 px left the day-of-year axis cramped. The glider curtain is a plotly figure
+    # that reflows, and it sits above two sliders whose labels wrap badly when the dock
+    # gets wide, so it keeps the narrower one.
+    _width = "600px" if site_plot is not None else "480px"
+
     # A trailing conditional EXPRESSION, not an early return. marimo compiles a cell's
     # body as a module, so a `return` anywhere but the end of the file's own function
     # wrapper is a SyntaxError ("'return' outside function") -- and it fails at compile
     # time, taking every cell down with it. This form keeps the sidebar as the last
     # expression, which is what marimo renders, and evaluates to None when there is
     # nothing to show, which renders nothing.
-    mo.sidebar(_content, width="480px") if _visible else None
+    mo.sidebar(_content, width=_width) if _visible else None
     return
 
 
