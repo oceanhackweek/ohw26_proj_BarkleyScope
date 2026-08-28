@@ -1,0 +1,37 @@
+{
+ "type": "FeatureCollection",
+ "features": [
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -125.280955,
+     48.813797
+    ]
+   },
+   "properties": {
+    "name": "Folger Deep",
+    "code": "FGPD",
+    "depth_m": 98,
+    "source": "data/folger/folgerDeepDataSet.nc"
+   }
+  },
+  {
+   "type": "Feature",
+   "geometry": {
+    "type": "Point",
+    "coordinates": [
+     -125.2815,
+     48.808292
+    ]
+   },
+   "properties": {
+    "name": "Folger Pinnacle",
+    "code": "FGPPN",
+    "depth_m": 25,
+    "source": "data/folger/FolgerPassage_FolgerPinnacle_..._avg1hour.nc"
+   }
+  }
+ ]
+}

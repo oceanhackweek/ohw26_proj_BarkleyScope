@@ -291,6 +291,113 @@ every downloaded file is opened and checked for `temperature_adjusted` carrying 
 values. Anything failing is moved to `glider_adjusted/rejected/` rather than deleted, so
 the call stays inspectable. All 26 currently pass.
 
+## Map-ready tracks — `glider_adjusted_tracks.geojson`
+
+The map app cannot read the gridded set directly: that is 10.68 GB, and a browser needs
+about a megabyte of line geometry. But geometry is all a track layer wants, and the
+gridded files carry it cheaply — `longitude`/`latitude` are 1-D coordinates on `time`,
+one point per profile. `build_historical_tracks.py` reads only those, clips to `BOX`,
+splits into drawable segments, and writes a file small enough to commit.
+
+```bash
+python data/build_historical_tracks.py            # after any fetch_grid_adjusted.py run
+python data/build_historical_tracks.py --dry-run  # report, write nothing
+```
+
+**26 features, 28,452 points, 1.26 MB** — one MultiPoint feature per deployment.
+
+### Points, not lines
+
+Each profile is a point, exactly where and when the glider surfaced. Nothing is drawn
+between consecutive profiles, because there is no honest answer for what to draw: these
+files sample anywhere from every ~9 minutes to every ~1 hour, so any join either invents
+a path across a real gap or shreds a sparsely-sampled transit into dashes, depending on
+where a threshold lands. The 2026 deployments are the sparse ones — a flat 0.05° cut sat
+right at *their* p95 spacing and broke them into 12–17 dashed pieces, while denser 2025
+tracks drew solid. Those jumps were real glider motion at 1.3–3.1 km/h, not gaps.
+
+Points state what is known and assert nothing in between, so there is no threshold to
+tune and no way to mislead by getting one wrong.
+
+One feature per deployment (rather than 28,452 point features) keeps the per-deployment
+properties stored once, and lets a colour ramp paint a whole deployment with a single
+expression.
+
+### Colouring by time
+
+| Property | Meaning |
+|---|---|
+| `epoch_days` | Days since `epoch_start` (the earliest deployment). The numeric key for a ramp — MapLibre's `interpolate` needs a number, not a date string. Range `0`–`epoch_days_max`. |
+| `deployment_start`, `deployment_month` | The same date as `YYYY-MM-DD` / `YYYY-MM`, for labels or a discrete month legend. |
+| `first_profile`, `last_profile`, `observed_month` | The span actually observed, from the data rather than the name. |
+| `times` | One `YYYY-MM-DDTHH:MM` per coordinate, same order — so a click-through can tie a point back to a profile without reopening the netCDF. |
+
+**Do not use the files' own `deployment_start` attribute** — 13 of the 26 carry a
+placeholder (`2018-07-12`, `2000-01-01`, `2022-12-07`). The date in the directory name is
+reliable and agrees with the first observation in 24 of 26; that is what these fields use.
+
+Two `bumblebee998` deployments carry an entire earlier mission from December 2022 ahead
+of the one they are named for — their `first_profile` gives them away. They are kept
+as-is for now; the ramp is anchored on deployment dates, so those points simply take
+their deployment's colour.
+
+## Instrument sites — `folger_sites.geojson`
+
+The two Ocean Networks Canada sites in Folger Passage, as Points, written by the same
+script. Coordinates come from the ONC metadata shipped with the data already in
+`data/folger/`, not from a gazetteer.
+
+| Site | Code | Lon | Lat | Depth |
+|---|---|---|---|---|
+| Folger Deep | `FGPD` | −125.280955 | 48.813797 | 98 m |
+| Folger Pinnacle | `FGPPN` | −125.281500 | 48.808292 | 25 m |
+
+They are ~650 m apart and differ by ~70 m of depth, so they must not be collapsed to one
+marker — at low zoom they overplot. Note that `data/sst/compare_panels.py` labels
+(48.814, −125.281) as "Folger Pinnacle", but per ONC that coordinate is Folger *Deep*;
+do not copy it from there.
+
+## Climatology sites — `climatology_sites.geojson`
+
+The eight moorings and buoys that have a day-of-year temperature climatology, as Points,
+written by `build_climatology_sites.py`. The app draws them in its historical view and
+opens a site's climatology plot when it is clicked.
+
+```bash
+python data/build_climatology_sites.py            # after any onc_climatology.py --all run
+python data/build_climatology_sites.py --dry-run  # report, write nothing
+```
+
+| key | station | depth | record |
+|---|---|---|---|
+| `pinnacle` | Folger Pinnacle | 25 m | 2011-02-03 → 2026-08-11 |
+| `deep` | Folger Deep | 98 m | 2016-01-01 → 2026-07-18 |
+| `upperslope` | Barkley Upper Slope | 398 m | 2009-08-01 → 2026-08-26 |
+| `node` | Barkley Node | 643 m | 2018-06-22 → 2026-08-26 |
+| `hydrates` | Barkley Canyon Hydrates | 871 m | 2013-05-16 → 2026-08-26 |
+| `mideast` | Barkley Canyon Mid-East | 900 m | 2009-09-15 → 2026-07-28 |
+| `axis` | Barkley Canyon Axis | 983 m | 2010-05-18 → 2026-08-26 |
+| `laperusebank` | La Perouse Bank (C46206) | sea surface | 1988-11-22 → 2022-04-17 |
+
+**The key → file mapping is not defined here.** It is imported from
+`contributor_folders/Dwight/onc_climatology.py`'s own `discover_sites()`, so this
+precompute reads exactly the record each climatology was built from. That matters more
+than it looks: for Folger Deep the folder holds two different records, and
+`folgerDeepDataSet.nc` (2009-2015) is not the one the climatology uses (the CSV,
+2016-2026). The site key is also the PNG's filename stem, so a rename cannot silently
+point a site at another site's plot.
+
+Positions come from each record's own metadata — `station_lat`/`station_lon` global
+attributes in the ONC netCDFs, `#LATITUDE`/`#LONGITUDE` header lines in the ONC CSVs, the
+median of the `LATITUDE`/`LONGITUDE` columns for the MEDS buoy. The Folger pair agrees
+with `folger_sites.geojson` to six decimals, which is the check that the two scripts read
+the same thing. One trap, handled: the buoy file writes longitude positive (`126.0`)
+meaning degrees *west*; taken at face value it puts La Perouse Bank in Kazakhstan.
+
+Note the two depth fields. `depth_m` is instrument depth; for the surface buoy it is null
+and `water_depth_m` (72 m) carries the sounding instead, because those are different
+quantities and collapsing them would report the buoy as measuring at 72 m.
+
 ## Files
 
 | File | Purpose |
@@ -298,6 +405,8 @@ the call stays inspectable. All 26 currently pass.
 | `cproof_glider.py` | The shared library — discovery, fetching, QC, netCDF I/O, update logic |
 | `cproof_https.py` | Live view straight from the C-PROOF server — what is in the box now |
 | `fetch_grid_adjusted.py` | Bulk download of the gridded `_grid_adjusted.nc` mission set |
+| `build_historical_tracks.py` | Turns that set into committable map tracks + the Folger sites |
+| `build_climatology_sites.py` | Map layer for the eight sites with a day-of-year climatology |
 | `upload_glider_adjusted.sh` | Mirrors that set to the GitHub release, one deployment at a time |
 | `watch_glider_transects.py` | Nightly check for new transects in the box; writes the manifest |
 | `update_cproof_glider.py` | CLI entry point for the scheduled job |
