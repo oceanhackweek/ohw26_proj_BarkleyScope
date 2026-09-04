@@ -30,17 +30,45 @@
     },
     "dfo-eva035-20260826": {
       "first_seen": "2026-08-27T04:24:10.494857+00:00",
-      "last_fix": "2026-08-29T08:07:00+00:00",
-      "profiles_in_box": 68
+      "last_fix": "2026-09-03T22:21:00+00:00",
+      "profiles_in_box": 86
     },
     "dfo-hal1002-20260817": {
       "first_seen": "2026-08-27T04:24:10.494857+00:00",
-      "last_fix": "2026-09-02T10:27:00+00:00",
+      "last_fix": "2026-09-03T15:08:00+00:00",
       "profiles_in_box": 627
     }
   },
   "source": "https://cproof.uvic.ca/gliderdata/deployments",
   "transects": [
+    {
+      "active": true,
+      "bbox_in_box": {
+        "lat": [
+          48.2293,
+          48.8783
+        ],
+        "lon": [
+          -126.3099,
+          -125.1969
+        ]
+      },
+      "color": "#107D21",
+      "comment": "SVI Shelf from Bamfield",
+      "deployment": "dfo-eva035-20260826",
+      "files": {
+        "grid": "https://cproof.uvic.ca/gliderdata/deployments/dfo-eva035/dfo-eva035-20260826/L0-gridfiles/dfo-eva035-20260826_grid_adjusted.nc",
+        "timeseries": "https://cproof.uvic.ca/gliderdata/deployments/dfo-eva035/dfo-eva035-20260826/L0-timeseries/dfo-eva035-20260826.nc"
+      },
+      "first_seen": "2026-08-27T04:24:10.494857+00:00",
+      "glider": "dfo-eva035",
+      "last_fix": "2026-09-03T22:21:00+00:00",
+      "profiles_in_box": 86,
+      "profiles_total": 86,
+      "project": "LB Line",
+      "start": "2026-08-26T17:39:00+00:00",
+      "url": "https://cproof.uvic.ca/gliderdata/deployments/dfo-eva035/dfo-eva035-20260826"
+    },
     {
       "active": true,
       "bbox_in_box": {
@@ -62,40 +90,12 @@
       },
       "first_seen": "2026-08-27T04:24:10.494857+00:00",
       "glider": "dfo-hal1002",
-      "last_fix": "2026-09-02T10:27:00+00:00",
+      "last_fix": "2026-09-03T15:08:00+00:00",
       "profiles_in_box": 627,
-      "profiles_total": 770,
+      "profiles_total": 793,
       "project": "Southern Line",
       "start": "2026-08-17T20:32:00+00:00",
       "url": "https://cproof.uvic.ca/gliderdata/deployments/dfo-hal1002/dfo-hal1002-20260817"
-    },
-    {
-      "active": false,
-      "bbox_in_box": {
-        "lat": [
-          48.4028,
-          48.8783
-        ],
-        "lon": [
-          -126.3099,
-          -125.1969
-        ]
-      },
-      "color": "#107D21",
-      "comment": "SVI Shelf from Bamfield",
-      "deployment": "dfo-eva035-20260826",
-      "files": {
-        "grid": "https://cproof.uvic.ca/gliderdata/deployments/dfo-eva035/dfo-eva035-20260826/L0-gridfiles/dfo-eva035-20260826_grid_adjusted.nc",
-        "timeseries": "https://cproof.uvic.ca/gliderdata/deployments/dfo-eva035/dfo-eva035-20260826/L0-timeseries/dfo-eva035-20260826.nc"
-      },
-      "first_seen": "2026-08-27T04:24:10.494857+00:00",
-      "glider": "dfo-eva035",
-      "last_fix": "2026-08-29T08:07:00+00:00",
-      "profiles_in_box": 68,
-      "profiles_total": 68,
-      "project": "LB Line",
-      "start": "2026-08-26T17:39:00+00:00",
-      "url": "https://cproof.uvic.ca/gliderdata/deployments/dfo-eva035/dfo-eva035-20260826"
     },
     {
       "active": false,
@@ -152,35 +152,7 @@
       "project": "Southern Line",
       "start": "2026-07-08T17:34:00+00:00",
       "url": "https://cproof.uvic.ca/gliderdata/deployments/dfo-colin1142/dfo-colin1142-20260708"
-    },
-    {
-      "active": false,
-      "bbox_in_box": {
-        "lat": [
-          48.1591,
-          48.8881
-        ],
-        "lon": [
-          -126.6123,
-          -125.0893
-        ]
-      },
-      "color": "#9D0903",
-      "comment": "SVI Shelf from Bamfield",
-      "deployment": "dfo-eva035-20260713",
-      "files": {
-        "grid": "https://cproof.uvic.ca/gliderdata/deployments/dfo-eva035/dfo-eva035-20260713/L0-gridfiles/dfo-eva035-20260713_grid_adjusted.nc",
-        "timeseries": "https://cproof.uvic.ca/gliderdata/deployments/dfo-eva035/dfo-eva035-20260713/L0-timeseries/dfo-eva035-20260713.nc"
-      },
-      "first_seen": "2026-08-27T04:24:10.494857+00:00",
-      "glider": "dfo-eva035",
-      "last_fix": "2026-08-04T15:57:00+00:00",
-      "profiles_in_box": 239,
-      "profiles_total": 239,
-      "project": "LB Line",
-      "start": "2026-07-13T19:29:00+00:00",
-      "url": "https://cproof.uvic.ca/gliderdata/deployments/dfo-eva035/dfo-eva035-20260713"
     }
   ],
-  "updated": "2026-09-03T03:41:14.869598+00:00"
+  "updated": "2026-09-04T03:42:44.869791+00:00"
 }
