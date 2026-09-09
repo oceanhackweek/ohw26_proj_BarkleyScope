@@ -199,20 +199,34 @@ def resolve_site_location(key: str, path: Path, onc, cache: dict) -> dict:
 
     # Ask the location which device categories it has, and keep the first that
     # genuinely offers the temperature sensor.
-    found = []
-    for cat in onc.getDeviceCategories({"locationCode": code}) or []:
-        cat_code = cat["deviceCategoryCode"]
+    def property_sensor(cat_code):
+        """The sensor category at `cat_code` carrying the property, if any."""
         sensors = onc.getSensorCategoryCodes({
             "locationCode": code, "deviceCategoryCode": cat_code,
         }) or []
         for s in sensors:
             if s.get("propertyCode") == PROPERTY:
-                found.append((cat_code, s["sensorCategoryCode"]))
-                break
-    if not found:
+                return s["sensorCategoryCode"]
+        return None
+
+    available = [c["deviceCategoryCode"]
+                 for c in onc.getDeviceCategories({"locationCode": code}) or []]
+    # Try the preferred categories first and stop at the first hit, rather than
+    # interrogating every instrument at the location. Besides being fewer calls,
+    # it avoids provoking access warnings from categories we will never use --
+    # CCIP's hydrophone data is restricted, and asking about it prints a notice
+    # about a dataset this tool has no interest in.
+    found = None
+    for cat_code in list(PREFERRED_CATEGORIES) + sorted(set(available) - set(PREFERRED_CATEGORIES)):
+        if cat_code not in available:
+            continue
+        sensor_cat = property_sensor(cat_code)
+        if sensor_cat:
+            found = (cat_code, sensor_cat)
+            break
+    if found is None:
         raise SystemExit(f"{key}: no device category at {code} reports {PROPERTY}")
-    found.sort(key=lambda t: (t[0] not in PREFERRED_CATEGORIES, t[0]))
-    devcat, sensor_cat = found[0]
+    devcat, sensor_cat = found
 
     cache[key] = {"locationCode": code, "deviceCategoryCode": devcat,
                   "sensorCategoryCode": sensor_cat}

@@ -16,6 +16,7 @@ is enough to add a site.
 |-----|---------|-------|--------|----------------|
 | `pinnacle`   | Folger Pinnacle          |  25 m | 2011-2026 | 0.43-1.47 C |
 | `deep`       | Folger Deep              |  98 m | 2016-2026 | 0.19-0.93 C |
+| `chinacreekunderwaternetwork` | China Creek Underwater Network | 109 m | 2019-2026 | 0.15-0.49 C |
 | `upperslope` | Barkley Upper Slope      | 398 m | 2009-2026 | 0.18-0.38 C |
 | `node`       | Barkley Node             | 643 m | 2018-2026 | 0.12-0.18 C |
 | `hydrates`   | Barkley Canyon Hydrates  | 871 m | 2013-2026 | 0.09-0.14 C |
@@ -49,6 +50,14 @@ is enough to add a site.
   carries p05-p95 if you prefer distribution-free thresholds.
 * Variability is strongly seasonal at every site, which is why anomalies are reported
   in sd units rather than degrees.
+* China Creek is the one site whose seasonal cycle runs the other way: warmest around
+  1 March, coldest around 10 July, opposite in phase to the shelf and canyon sites. It
+  sits at 109 m inside Alberni Inlet, behind a sill, and its deep water is renewed by
+  cold dense water spilling in during the upwelling season. In 2026 that arrives as a
+  staircase of discrete steps through May and June rather than as a smooth seasonal
+  decline -- individual renewal pulses, not a slow drift. Any cross-site reading of
+  "warm for the time of year" has to account for the fact that its time of year is
+  reversed.
 
 ## Use
 
@@ -82,6 +91,10 @@ and `climatology/latest_vs_climatology.{csv,png}` the cross-site comparison.
   years), so the recent end of the distribution is slightly under-weighted.
 * Barkley Node has the shortest record (2018-2026, 9 years, 2,250-2,967 values per
   day of year). Its bands are the least well constrained of the deep sites.
+* China Creek's distribution is the least Gaussian of any site: 60.5 / 39.0 / 0.4 %
+  against the expected 68.3 / 27.2 / 4.6 % split. It has fat shoulders and almost no
+  tail, so a z-score there is a poorer guide to rarity than elsewhere and the p05-p95
+  columns are the better threshold.
 * The deep canyon sites have a very small seasonal cycle (0.14-0.28 C) relative to
   their sub-seasonal variability, so day-of-year climatology matters less there than
   at the shelf sites -- but the sd is also tiny, so small absolute anomalies still

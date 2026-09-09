@@ -449,8 +449,15 @@ def composite(z: pd.Series, oni: pd.Series, lag: int = 0,
 # Fingerprint
 # --------------------------------------------------------------------------
 
+# A site earns a vote in the fingerprint only if its own lagged relationship
+# survived the lag search. This is the same threshold `_signal` uses for
+# "suggestive"; anything weaker is a regression fitted to noise.
+FINGERPRINT_MAX_P_ADJ = 0.2
+
+
 def fingerprint(anoms: pd.DataFrame, oni: pd.Series, lags: dict,
-                slopes: dict, when: pd.Timestamp | None = None) -> dict:
+                slopes: dict, when: pd.Timestamp | None = None,
+                eligible: dict | None = None) -> dict:
     """How closely does the present cross-site pattern match the ENSO response?
 
     The expected pattern is each site's own regression applied to the ONI value
@@ -488,6 +495,15 @@ def fingerprint(anoms: pd.DataFrame, oni: pd.Series, lags: dict,
     def vectors(t: pd.Timestamp, why: dict | None = None):
         obs, exp, keys = [], [], []
         for key in anoms.columns:
+            # An unresolved relationship must not vote. Its slope is fitted to
+            # whatever the record happened to do, and nothing constrains its
+            # size -- the largest slope here belongs to the site with the least
+            # evidence, which is exactly the term that would dominate a
+            # projection if it were allowed in.
+            if eligible is not None and key not in eligible:
+                if why is not None:
+                    why[key] = eligible_reason.get(key, "lagged relationship not resolved")
+                continue
             lag = lags.get(key)
             slope = slopes.get(key)
             if lag is None or slope is None or not np.isfinite(slope):
@@ -518,6 +534,7 @@ def fingerprint(anoms: pd.DataFrame, oni: pd.Series, lags: dict,
         cos = float((obs @ exp) / norm) if norm > 1e-9 else np.nan
         return amp, cos
 
+    eligible_reason = getattr(eligible, "reasons", {}) if eligible else {}
     dropped = {}
     obs, exp, keys = vectors(when, why=dropped)
     dropped = {k: v for k, v in dropped.items() if k not in keys}
@@ -736,14 +753,39 @@ def analyse(live: bool = False, days: int = 30, keys=None,
             "lag": lag, "r": top["r"], "p": top["p"], "p_adj": top.get("p_adj"),
             "n_eff": top["n_eff"],
             "slope": reg["slope"],
+            "spans_heatwave": bool(len(z[(z.index >= HEATWAVE[0])
+                                        & (z.index <= HEATWAVE[1])]) > 0),
             "nino": comp["nino"], "nina": comp["nina"], "gap": comp["difference"],
             "gap_p": comp["p"], "gap_excl_hw": comp_ex["difference"],
             "n_events": comp["n_nino_events"] + comp["n_nina_events"],
         })
     summary = pd.DataFrame(rows).sort_values("depth", na_position="first")
-    fp = fingerprint(anoms, oni, lags, slopes)
+
+    # Only sites whose lagged relationship survived the lag search contribute to
+    # the fingerprint. Everything else stays in the table, where its weakness is
+    # visible, rather than silently steering the score.
+    eligible, reasons = {}, {}
+    for _, r in summary.iterrows():
+        p_adj = r.get("p_adj")
+        if np.isfinite(p_adj) and p_adj < FINGERPRINT_MAX_P_ADJ:
+            eligible[r["key"]] = float(p_adj)
+        else:
+            reasons[r["key"]] = (
+                f"lagged relationship not resolved (p_adj="
+                f"{p_adj:.2f}, n_eff={r['n_eff']:.0f})"
+                if np.isfinite(p_adj) else "no lagged relationship")
+    eligible = _Eligible(eligible, reasons)
+    fp = fingerprint(anoms, oni, lags, slopes, eligible=eligible)
     return {"oni": oni, "anomalies": anoms, "summary": summary, "scans": scans,
             "composites": comps, "lags": lags, "slopes": slopes, "fingerprint": fp}
+
+
+class _Eligible(dict):
+    """A set of fingerprint-eligible sites that carries why the others are not."""
+
+    def __init__(self, mapping, reasons):
+        super().__init__(mapping)
+        self.reasons = reasons
 
 
 def _robust(row) -> str:
@@ -751,6 +793,10 @@ def _robust(row) -> str:
     gap, ex, p = row["gap"], row["gap_excl_hw"], row["gap_p"]
     if not np.isfinite(gap) or not np.isfinite(ex):
         return "-"
+    if row.get("spans_heatwave") is False:
+        # Nothing was removed, so nothing was tested. Reporting "holds" here
+        # would be corroboration the record cannot supply.
+        return "n/a, postdates 14-16"
     if np.sign(gap) != np.sign(ex):
         return "sign flips"
     if abs(ex) < 0.5 * abs(gap):

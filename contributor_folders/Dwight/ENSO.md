@@ -70,6 +70,7 @@ months. As of 2026-09-09, with the live tail:
 |------|-------:|----:|--:|------:|------:|--------:|--------:|----:|------------:|--------|
 | Folger Pinnacle, 25 m | 146 | 2 | +0.55 | 0.020 | 29 | +0.73 | -0.52 | **+1.25** | +0.75 | clear |
 | Folger Deep, 98 m | 117 | 2 | +0.56 | 0.051 | 24 | +0.57 | -0.88 | **+1.45** | +1.30 | suggestive |
+| China Creek Underwater Network, 109 m | 80 | 9 | +0.77 | 1.000 | 5.7 | +0.93 | -1.10 | +2.03 | n/a | not resolved |
 | Barkley Upper Slope, 398 m | 162 | 8 | -0.46 | 0.008 | 52 | -0.36 | +0.21 | **-0.57** | -0.61 | clear |
 | Barkley Node, 643 m | 87 | 0 | +0.41 | 0.436 | 27 | +0.22 | -0.21 | +0.43 | +0.43 | not resolved |
 | Barkley Canyon Hydrates, 871 m | 119 | 7 | -0.52 | 0.003 | 46 | -0.50 | +0.15 | **-0.64** | -0.54 | clear |
@@ -83,8 +84,23 @@ deeper sites cool six to eight months behind it. That split is what makes the
 pattern worth taking seriously as something other than "warm years are warm" —
 a common-mode warm bias would push every row the same way.
 
-Barkley Node is the one site the record cannot resolve. It has the shortest
-series (87 months, from 2018) and covers only two El Nino episodes.
+Two sites the record cannot resolve, for the same reason in different guises.
+Barkley Node has the shortest series (87 months, from 2018) and covers only two
+El Nino episodes.
+
+China Creek is the more instructive one, because on the raw numbers it looks
+like the strongest result in the table: r = +0.77, the largest composite gap of
+any site at +2.03 sd, and a bootstrap p of 0.000. It is not a result. Its
+`n_eff` is **5.7** -- the series is so smooth that 80 months carry fewer than
+six independent samples -- and once the thirteen-lag search is accounted for its
+p_adj is 1.000. Three guards, three chances to be misled, and the site would
+have been reported as the headline finding without them.
+
+The `n/a` in its exclusion column is the same point from another angle: the
+record begins in 2019-12 and never overlaps the marine heatwave, so removing
+2014-2016 removes nothing and reproduces the full-record number exactly.
+Reporting that as "holds" would be corroboration the record cannot supply. The
+same applies to Barkley Node, from 2018.
 
 ### Keeping the table honest
 
@@ -128,6 +144,16 @@ the expected one:
 Both are reported against the same two scores computed for every past
 ENSO-active month, because an amplitude of 0.6 means nothing until you know
 past events scattered between 0.2 and 1.8.
+
+Only sites whose lagged relationship survived the lag search (`p_adj < 0.2`,
+the same threshold behind the `signal` column) get a vote. This is not
+housekeeping: the largest regression slope in the table belongs to China Creek,
+the site with the least evidence behind it, and letting an unresolved
+relationship into the projection let that one term swamp the six resolved ones
+-- it moved August 2026 from "about the expected response" to "no measurable
+response". A slope fitted to noise is unconstrained in size, so it cannot be
+allowed to weigh against slopes that are constrained. Excluded sites are named
+in the output with their p_adj and n_eff.
 
 The scored month defaults to the most recent one where at least half the
 reporting sites have 80 % of the month. A live pull's final month is a few days

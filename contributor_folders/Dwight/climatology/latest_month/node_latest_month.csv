@@ -1,5 +1,4 @@
 time,temperature,yearday,clim_mean,clim_sd,anomaly,z,band,label
-2026-08-10 18:30:00,4.9179,222,4.7545,0.1494,0.1634,1.0937,1,unusually warm (outside 1 sigma)
 2026-08-10 19:30:00,4.9452,222,4.7545,0.1494,0.1907,1.2764,1,unusually warm (outside 1 sigma)
 2026-08-10 20:30:00,4.9366,222,4.7545,0.1494,0.1821,1.2192,1,unusually warm (outside 1 sigma)
 2026-08-10 21:30:00,4.9265,222,4.7545,0.1494,0.172,1.1515,1,unusually warm (outside 1 sigma)

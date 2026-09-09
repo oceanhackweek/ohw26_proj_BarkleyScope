@@ -214,15 +214,30 @@ def _(mo, summary):
 
 @app.cell(hide_code=True)
 def _(mo, summary):
-    _shelf = summary[summary["depth"] < 150]
-    _deep = summary[summary["depth"] >= 150]
+    # The sign-and-lag claim is about sites whose relationship the record
+    # actually resolves. Grouping purely by depth would sweep in an unresolved
+    # site and assert something of it that the table explicitly denies.
+    _resolved = summary[summary["signal"] != "not resolved"]
+    _shelf = _resolved[_resolved["depth"] < 150]
+    _deep = _resolved[_resolved["depth"] >= 150]
+    _unresolved = summary[summary["signal"] == "not resolved"]
+    _caveat = (
+        ""
+        if _unresolved.empty
+        else "\n\n        Not part of that claim: "
+        + ", ".join(f"**{r['site']}**" for _, r in _unresolved.iterrows())
+        + " — the lag search does not resolve a relationship there, so neither "
+        "row belongs on either side of the split. China Creek in particular is a "
+        "fjord site behind a sill, whose seasonal cycle runs opposite in phase to "
+        "everything else here."
+    )
     mo.md(
         f"""
         Read down the depth column rather than across the rows. The shelf sites
         ({', '.join(_shelf['site'])}) and the slope and canyon sites
         ({len(_deep)} of them, 398–983 m) do not merely differ in strength — they
         differ in **sign and in lag**, which is what makes the pattern worth
-        taking seriously as something other than "warm years are warm".
+        taking seriously as something other than "warm years are warm".{_caveat}
         """
     )
     return

@@ -4,6 +4,11 @@
     "locationCode": "BACAX",
     "sensorCategoryCode": "temperature"
   },
+  "chinacreekunderwaternetwork": {
+    "deviceCategoryCode": "CTD",
+    "locationCode": "CCIP",
+    "sensorCategoryCode": "temperature"
+  },
   "deep": {
     "deviceCategoryCode": "CTD",
     "locationCode": "FGPD",
