@@ -19,8 +19,26 @@ python enso_context.py --fingerprint --live   # score the latest complete month
 python enso_context.py --events               # ENSO episodes, CPC definition
 python enso_context.py --plots --live         # figures + csv into enso/
 python enso_context.py --refresh-oni          # force an index re-fetch
-marimo edit ENSO_App.py                       # the app
+marimo edit ENSO_App.py                       # the app, in the editor
+./serve.sh                                    # the app, served for a browser
 ```
+
+`serve.sh` runs a marimo app in *app* mode -- no code cells, no editor chrome --
+and prints a URL reachable from outside the container. It takes an app name and
+an optional port (`./serve.sh Latest_Month_App.py`, `./serve.sh ENSO_App.py
+2750`), defaulting to `ENSO_App.py` on 2719 so it can run alongside
+`final_notebooks/serve_app.sh` on 2718.
+
+It is that script generalised, and repeats its two proxy rules because both are
+invisible until they bite: bind to `127.0.0.1` rather than `0.0.0.0` or `::1`,
+because jupyter-server-proxy's readiness probe reaches localhost over IPv4 while
+`getaddrinfo` reports `::1` first in this container; and use the
+`/proxy/absolute/<port>/` route with a matching `--base-url`, because the plain
+`/proxy/<port>/` route strips the prefix and marimo then 404s every request.
+
+The app is gated on its **Run the analysis** button, so a slider does not trigger
+a minute of work. That first run rebuilds every site's climatology from the
+archives, which is roughly how long it takes.
 
 `--live` extends the archived records with the ONC API so the current month is
 scored; without it the analysis stops wherever the archives stop, which at the
