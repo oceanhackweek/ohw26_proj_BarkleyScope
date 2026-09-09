@@ -1,0 +1,37 @@
+{
+  "axis": {
+    "deviceCategoryCode": "CTD",
+    "locationCode": "BACAX",
+    "sensorCategoryCode": "temperature"
+  },
+  "deep": {
+    "deviceCategoryCode": "CTD",
+    "locationCode": "FGPD",
+    "sensorCategoryCode": "temperature"
+  },
+  "hydrates": {
+    "deviceCategoryCode": "CTD",
+    "locationCode": "BACHY",
+    "sensorCategoryCode": "temperature"
+  },
+  "mideast": {
+    "deviceCategoryCode": "CTD",
+    "locationCode": "BACME",
+    "sensorCategoryCode": "temperature"
+  },
+  "node": {
+    "deviceCategoryCode": "CTD",
+    "locationCode": "BACND",
+    "sensorCategoryCode": "temperature"
+  },
+  "pinnacle": {
+    "deviceCategoryCode": "CTD",
+    "locationCode": "FGPPN",
+    "sensorCategoryCode": "temperature"
+  },
+  "upperslope": {
+    "deviceCategoryCode": "CTD",
+    "locationCode": "NCBC",
+    "sensorCategoryCode": "temperature"
+  }
+}

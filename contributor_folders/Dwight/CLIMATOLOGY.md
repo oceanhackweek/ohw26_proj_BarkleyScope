@@ -89,3 +89,126 @@ and `climatology/latest_vs_climatology.{csv,png}` the cross-site comparison.
 * `check_latest.py` prints a warning when the value being checked differs from the
   last archived value by more than 0.1 C, which usually means the reading came from
   the live dashboard and the archive has not caught up (or the wrong sensor/depth).
+
+## Latest month from the API (`latest_month.py`, `Latest_Month_App.py`)
+
+`check_latest.py` scores a handful of hand-typed spot readings. `latest_month.py`
+pulls a whole recent window straight from the ONC API instead and scores **every hour**
+in it, so the comparison is a curve against an envelope rather than one point against a
+band. The statistics are unchanged -- it calls `onc_climatology.classify_series`.
+
+```bash
+python latest_month.py                        # last 30 days, every ONC site
+python latest_month.py --site node --days 14
+python latest_month.py --offline              # no API: score the tail of the archives
+python latest_month.py --no-plots             # tables only
+python latest_month.py --format png           # raster instead of the default svg
+```
+
+Figures are **SVG** by default, and the app renders them inline as vector via
+`latest_month.as_svg` -- which namespaces each figure's element ids, without
+which two matplotlib SVGs on one page resolve each other's clip paths and lose
+content. See the Figures section of `ENSO.md`.
+
+`Latest_Month_App.py` is the same thing as a marimo app -- site and window pickers, a
+summary table, the cross-site figure, and a per-site detail plot:
+
+```bash
+marimo edit Latest_Month_App.py               # to work on it
+./../../final_notebooks/serve_app.sh          # pattern for serving in app mode
+```
+
+### The token
+
+Read from `$ONC_TOKEN`, falling back to `~/.onc_token`. It is never printed, logged, or
+written into any output file. To set it without it entering your shell history:
+
+```bash
+read -s -p 'ONC token: ' T && printf '%s' "$T" > ~/.onc_token \
+    && chmod 600 ~/.onc_token && unset T
+```
+
+`~/.onc_token` deliberately lives outside the repo, so no `git add -A` can pick it up.
+This is the direction `data/sst/README.md` already asks for, after a live token was
+found sitting in a notebook cell.
+
+### How sites are resolved
+
+Nothing is hardcoded, because a guessed location code silently returns the wrong
+mooring's data rather than failing:
+
+* The ONC **CSV** exports carry `#STNCODE` in their preamble, which *is* the ONC
+  location code -- Mid-East resolves to `BACME` for free.
+* The **NetCDF** exports do not, but they carry `station_lat`/`station_lon`. Those are
+  matched against ONC's own location list, and a nearest match further than 2 km is a
+  hard error rather than a guess.
+* The device category is whichever one at that location actually reports the
+  `seawatertemperature` **property**, asked for via the API rather than assumed to be
+  CTD. ONC separates two codes that are easy to conflate: `seawatertemperature` is the
+  *property* code, shared by every instrument measuring it, while the *sensor category*
+  code is what that device calls the channel -- plain `temperature`. Matching the
+  property name against the sensor-category field finds nothing anywhere, which fails
+  every site at once rather than quietly returning the wrong series.
+* Where more than one device category at a location carries the property -- an oxygen
+  sensor and a turbidity meter each report their own temperature -- CTD is preferred,
+  because that is what the archives and therefore the climatology were built from.
+  Without an explicit preference the choice falls to dict ordering.
+
+Resolved codes and the resolved sensor category are cached in `onc_locations.json`
+beside the script. A cache written before the sensor category was recorded is treated
+as absent rather than reused.
+
+### When a site goes quiet
+
+An instrument that stops reporting yields an empty window, which is a normal condition
+here rather than an error: Folger Deep's CTD has been silent since 2026-07-18. Such a
+site keeps its full column schema, reports `n = 0` and a `no data returned` verdict,
+and still shows the archive's own last value and timestamp -- which is the pair that
+distinguishes an outage from a fetch bug. One quiet site does not stop the run.
+
+### Comparability with the climatology
+
+* The pull is resampled to **hourly** (`resamplePeriod=3600`), because the climatology
+  was built on hourly averages. Scoring raw sub-minute scalars against an hourly sd
+  would inflate every z.
+* The same QAQC filter is applied to the fetched data as to the archives -- flags 1/2/7
+  kept, everything else dropped as a gap.
+* Timestamps come back tz-naive UTC, matching `load_series`, so the day-of-year index
+  lines up.
+* The prebuilt `<site>_climatology.csv` is used when present (milliseconds); otherwise
+  the climatology is rebuilt from the archive (tens of seconds per site).
+
+### Reading the output
+
+`verdict` is a **window-level** label and is deliberately coarser than the per-reading
+one in `check_latest.py`: a single hour beyond 2 sd is noise, whereas a month that
+averages beyond 1 sd is not. It keys off the window mean and the fraction of time spent
+outside 1 sd, not off the worst single point -- so a site can read `normal` while still
+showing hours beyond 2 sd in its detail plot. Both numbers are in the table.
+
+In the per-site figure, excursions are drawn as **filled area** between the observation
+and the 1 sd edge rather than as a marker per hour. At a site that sits outside the band
+for most of the month, per-point markers cover the line they are annotating and the eye
+reads dot density instead of distance.
+
+### Caveats
+
+* **La Perouse Bank is absent.** It is a DFO/MEDS buoy, not an ONC station, so it has no
+  ONC location code and cannot come through this API at all. It stays archive-only until
+  a live source is found.
+* `--offline` scores the tail of the archived files, which end days to weeks before the
+  present and at a *different* date per site. It is a structural check of the scoring and
+  plotting path, not a current one; the cross-site figure says so in its subtitle when
+  the per-site windows disagree by more than two days.
+* Everything in the parent `## Caveats` section still applies -- these are record
+  climatologies, not fixed-baseline normals, and the deep canyon sites have very small
+  sd, so small absolute anomalies still score as large z.
+
+## Is it ENSO? (`enso_context.py`, `ENSO_App.py`)
+
+`latest_month.py` scores the present against the day-of-year climatology, which
+answers "is this unusual" but not "is this El Nino". `enso_context.py` measures
+each site's lagged relationship to the ONI over its whole record and scores the
+present against that instead. See **ENSO.md** -- including why the shelf and the
+deep canyon respond with opposite sign at different lags, and why that split is
+the reason to believe the pattern is not just "warm years are warm".

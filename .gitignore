@@ -58,3 +58,8 @@ final_notebooks/HANDOFF.md
 # regenerated in seconds from committed data.
 data/glider_tracks_map.png
 data/sst/preview_*.png
+
+# Never commit an API token.
+onc_token.txt
+.onc_token
+*.token
