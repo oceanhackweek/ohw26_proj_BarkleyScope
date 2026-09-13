@@ -30,12 +30,12 @@
     },
     "dfo-eva035-20260826": {
       "first_seen": "2026-08-27T04:24:10.494857+00:00",
-      "last_fix": "2026-09-09T04:03:00+00:00",
-      "profiles_in_box": 176
+      "last_fix": "2026-09-12T23:53:00+00:00",
+      "profiles_in_box": 182
     },
     "dfo-hal1002-20260817": {
       "first_seen": "2026-08-27T04:24:10.494857+00:00",
-      "last_fix": "2026-09-11T14:55:00+00:00",
+      "last_fix": "2026-09-12T21:15:00+00:00",
       "profiles_in_box": 652
     }
   },
@@ -45,35 +45,7 @@
       "active": true,
       "bbox_in_box": {
         "lat": [
-          48.5295,
-          48.8931
-        ],
-        "lon": [
-          -126.7999,
-          -125.1697
-        ]
-      },
-      "color": "#456620",
-      "comment": "Southern Line",
-      "deployment": "dfo-hal1002-20260817",
-      "files": {
-        "grid": "https://cproof.uvic.ca/gliderdata/deployments/dfo-hal1002/dfo-hal1002-20260817/L0-gridfiles/dfo-hal1002-20260817_grid.nc",
-        "timeseries": "https://cproof.uvic.ca/gliderdata/deployments/dfo-hal1002/dfo-hal1002-20260817/L0-timeseries/dfo-hal1002-20260817.nc"
-      },
-      "first_seen": "2026-08-27T04:24:10.494857+00:00",
-      "glider": "dfo-hal1002",
-      "last_fix": "2026-09-11T14:55:00+00:00",
-      "profiles_in_box": 652,
-      "profiles_total": 931,
-      "project": "Southern Line",
-      "start": "2026-08-17T20:32:00+00:00",
-      "url": "https://cproof.uvic.ca/gliderdata/deployments/dfo-hal1002/dfo-hal1002-20260817"
-    },
-    {
-      "active": false,
-      "bbox_in_box": {
-        "lat": [
-          48.1234,
+          48.1176,
           48.8783
         ],
         "lon": [
@@ -90,12 +62,40 @@
       },
       "first_seen": "2026-08-27T04:24:10.494857+00:00",
       "glider": "dfo-eva035",
-      "last_fix": "2026-09-09T04:03:00+00:00",
-      "profiles_in_box": 176,
-      "profiles_total": 176,
+      "last_fix": "2026-09-12T23:53:00+00:00",
+      "profiles_in_box": 182,
+      "profiles_total": 182,
       "project": "LB Line",
       "start": "2026-08-26T17:39:00+00:00",
       "url": "https://cproof.uvic.ca/gliderdata/deployments/dfo-eva035/dfo-eva035-20260826"
+    },
+    {
+      "active": true,
+      "bbox_in_box": {
+        "lat": [
+          48.5294,
+          48.8931
+        ],
+        "lon": [
+          -126.7984,
+          -125.1697
+        ]
+      },
+      "color": "#456620",
+      "comment": "Southern Line",
+      "deployment": "dfo-hal1002-20260817",
+      "files": {
+        "grid": "https://cproof.uvic.ca/gliderdata/deployments/dfo-hal1002/dfo-hal1002-20260817/L0-gridfiles/dfo-hal1002-20260817_grid.nc",
+        "timeseries": "https://cproof.uvic.ca/gliderdata/deployments/dfo-hal1002/dfo-hal1002-20260817/L0-timeseries/dfo-hal1002-20260817.nc"
+      },
+      "first_seen": "2026-08-27T04:24:10.494857+00:00",
+      "glider": "dfo-hal1002",
+      "last_fix": "2026-09-12T21:15:00+00:00",
+      "profiles_in_box": 652,
+      "profiles_total": 949,
+      "project": "Southern Line",
+      "start": "2026-08-17T20:32:00+00:00",
+      "url": "https://cproof.uvic.ca/gliderdata/deployments/dfo-hal1002/dfo-hal1002-20260817"
     },
     {
       "active": false,
@@ -154,5 +154,5 @@
       "url": "https://cproof.uvic.ca/gliderdata/deployments/dfo-colin1142/dfo-colin1142-20260708"
     }
   ],
-  "updated": "2026-09-12T03:52:05.703964+00:00"
+  "updated": "2026-09-13T04:00:00.248280+00:00"
 }
