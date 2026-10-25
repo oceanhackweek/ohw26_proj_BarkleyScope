@@ -40,8 +40,8 @@
     },
     "dfo-eva035-20261013": {
       "first_seen": "2026-10-14T04:14:05.348819+00:00",
-      "last_fix": "2026-10-23T23:14:00+00:00",
-      "profiles_in_box": 93
+      "last_fix": "2026-10-24T22:53:00+00:00",
+      "profiles_in_box": 107
     },
     "dfo-hal1002-20260817": {
       "first_seen": "2026-08-27T04:24:10.494857+00:00",
@@ -77,9 +77,9 @@
       },
       "first_seen": "2026-10-14T04:14:05.348819+00:00",
       "glider": "dfo-eva035",
-      "last_fix": "2026-10-23T23:14:00+00:00",
-      "profiles_in_box": 93,
-      "profiles_total": 93,
+      "last_fix": "2026-10-24T22:53:00+00:00",
+      "profiles_in_box": 107,
+      "profiles_total": 107,
       "project": "LB Line",
       "start": "2026-10-13T18:40:00+00:00",
       "url": "https://cproof.uvic.ca/gliderdata/deployments/dfo-eva035/dfo-eva035-20261013"
@@ -169,5 +169,5 @@
       "url": "https://cproof.uvic.ca/gliderdata/deployments/dfo-eva035/dfo-eva035-20260918"
     }
   ],
-  "updated": "2026-10-24T03:55:20.626664+00:00"
+  "updated": "2026-10-25T03:54:35.737608+00:00"
 }
