@@ -40,8 +40,8 @@
     },
     "dfo-eva035-20261013": {
       "first_seen": "2026-10-14T04:14:05.348819+00:00",
-      "last_fix": "2026-10-25T20:51:00+00:00",
-      "profiles_in_box": 113
+      "last_fix": "2026-10-26T22:45:00+00:00",
+      "profiles_in_box": 131
     },
     "dfo-hal1002-20260817": {
       "first_seen": "2026-08-27T04:24:10.494857+00:00",
@@ -50,8 +50,8 @@
     },
     "dfo-walle652-20261023": {
       "first_seen": "2026-10-24T03:55:20.626664+00:00",
-      "last_fix": "2026-10-25T02:40:00+00:00",
-      "profiles_in_box": 75
+      "last_fix": "2026-10-26T16:27:00+00:00",
+      "profiles_in_box": 111
     }
   },
   "source": "https://cproof.uvic.ca/gliderdata/deployments",
@@ -77,9 +77,9 @@
       },
       "first_seen": "2026-10-14T04:14:05.348819+00:00",
       "glider": "dfo-eva035",
-      "last_fix": "2026-10-25T20:51:00+00:00",
-      "profiles_in_box": 113,
-      "profiles_total": 113,
+      "last_fix": "2026-10-26T22:45:00+00:00",
+      "profiles_in_box": 131,
+      "profiles_total": 131,
       "project": "LB Line",
       "start": "2026-10-13T18:40:00+00:00",
       "url": "https://cproof.uvic.ca/gliderdata/deployments/dfo-eva035/dfo-eva035-20261013"
@@ -88,11 +88,11 @@
       "active": true,
       "bbox_in_box": {
         "lat": [
-          48.88,
+          48.6941,
           49.048
         ],
         "lon": [
-          -126.4023,
+          -126.7453,
           -126.1938
         ]
       },
@@ -105,9 +105,9 @@
       },
       "first_seen": "2026-10-24T03:55:20.626664+00:00",
       "glider": "dfo-walle652",
-      "last_fix": "2026-10-25T02:40:00+00:00",
-      "profiles_in_box": 75,
-      "profiles_total": 75,
+      "last_fix": "2026-10-26T16:27:00+00:00",
+      "profiles_in_box": 111,
+      "profiles_total": 111,
       "project": "Line P",
       "start": "2026-10-23T19:04:00+00:00",
       "url": "https://cproof.uvic.ca/gliderdata/deployments/dfo-walle652/dfo-walle652-20261023"
@@ -169,5 +169,5 @@
       "url": "https://cproof.uvic.ca/gliderdata/deployments/dfo-eva035/dfo-eva035-20260918"
     }
   ],
-  "updated": "2026-10-26T03:58:48.698104+00:00"
+  "updated": "2026-10-27T04:19:56.336618+00:00"
 }
