@@ -50,7 +50,7 @@
     },
     "dfo-hal1002-20261103": {
       "first_seen": "2026-11-04T05:31:42.418104+00:00",
-      "last_fix": "2026-11-16T22:15:00+00:00",
+      "last_fix": "2026-11-18T00:18:00+00:00",
       "profiles_in_box": 538
     },
     "dfo-walle652-20261023": {
@@ -82,9 +82,9 @@
       },
       "first_seen": "2026-11-04T05:31:42.418104+00:00",
       "glider": "dfo-hal1002",
-      "last_fix": "2026-11-16T22:15:00+00:00",
+      "last_fix": "2026-11-18T00:18:00+00:00",
       "profiles_in_box": 538,
-      "profiles_total": 674,
+      "profiles_total": 692,
       "project": "Southern Line",
       "start": "2026-11-03T20:19:00+00:00",
       "url": "https://cproof.uvic.ca/gliderdata/deployments/dfo-hal1002/dfo-hal1002-20261103"
@@ -174,5 +174,5 @@
       "url": "https://cproof.uvic.ca/gliderdata/deployments/dfo-hal1002/dfo-hal1002-20260817"
     }
   ],
-  "updated": "2026-11-17T07:14:00.552356+00:00"
+  "updated": "2026-11-18T06:38:50.593682+00:00"
 }
