@@ -50,12 +50,12 @@
     },
     "dfo-hal1002-20261103": {
       "first_seen": "2026-11-04T05:31:42.418104+00:00",
-      "last_fix": "2026-11-24T18:21:00+00:00",
-      "profiles_in_box": 547
+      "last_fix": "2026-11-25T20:57:00+00:00",
+      "profiles_in_box": 573
     },
     "dfo-walle652-20261023": {
       "first_seen": "2026-10-24T03:55:20.626664+00:00",
-      "last_fix": "2026-11-25T02:46:00+00:00",
+      "last_fix": "2026-11-25T21:19:00+00:00",
       "profiles_in_box": 255
     }
   },
@@ -82,9 +82,9 @@
       },
       "first_seen": "2026-10-24T03:55:20.626664+00:00",
       "glider": "dfo-walle652",
-      "last_fix": "2026-11-25T02:46:00+00:00",
+      "last_fix": "2026-11-25T21:19:00+00:00",
       "profiles_in_box": 255,
-      "profiles_total": 698,
+      "profiles_total": 710,
       "project": "Line P",
       "start": "2026-10-23T19:01:00+00:00",
       "url": "https://cproof.uvic.ca/gliderdata/deployments/dfo-walle652/dfo-walle652-20261023"
@@ -98,7 +98,7 @@
         ],
         "lon": [
           -126.798,
-          -125.1641
+          -125.1651
         ]
       },
       "color": "#107D21",
@@ -110,11 +110,11 @@
       },
       "first_seen": "2026-11-04T05:31:42.418104+00:00",
       "glider": "dfo-hal1002",
-      "last_fix": "2026-11-24T18:21:00+00:00",
-      "profiles_in_box": 547,
-      "profiles_total": 812,
+      "last_fix": "2026-11-25T20:57:00+00:00",
+      "profiles_in_box": 573,
+      "profiles_total": 838,
       "project": "Southern Line",
-      "start": "2026-11-03T20:07:00+00:00",
+      "start": "2026-11-03T20:19:00+00:00",
       "url": "https://cproof.uvic.ca/gliderdata/deployments/dfo-hal1002/dfo-hal1002-20261103"
     },
     {
@@ -146,5 +146,5 @@
       "url": "https://cproof.uvic.ca/gliderdata/deployments/dfo-eva035/dfo-eva035-20261013"
     }
   ],
-  "updated": "2026-11-25T07:43:29.698343+00:00"
+  "updated": "2026-11-26T07:34:06.310638+00:00"
 }
